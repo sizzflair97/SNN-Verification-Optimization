@@ -9,4 +9,4 @@ adv_rob_iris.py -- Adversarial robustness for SNN-IRIS\
 iris_property.py -- Check properties for SNN-IRIS\
 \
 Models -- Folder containing the trained SNN models\
-eqn -- Folder containing the encoded SNN models\
+eqn -- Folder containing the encoded SNN models
