@@ -18,7 +18,7 @@ advRobustness -- Check Adv. Robustness for the trained and encoded SNN
 adv_rob_iris.py -- Adversarial robustness for SNN-IRIS\
 \
 Models -- Folder containing the trained SNN models\
-eqn -- Folder containing the encoded SNN models\
+eqn -- Folder containing the encoded SNN models
 
 ## Usage
 1) Train SNN -- Configure the following parameters and run snnTrain.py
