@@ -21,8 +21,7 @@ Models -- Folder containing the trained SNN models\
 eqn -- Folder containing the encoded SNN models\
 
 ## Usage
-1) Train SNN
-Configure the following parameters and run snnTrain.py
+1) Train SNN -- Configure the following parameters and run snnTrain.py
 ```
 batch_size = 128 # Training batch size
 data_path = '/data/mnist' # Location to save data
@@ -32,8 +31,7 @@ num_steps = 10 # Number of timesteps
 beta = 0.95 # Decay (lambda)
 ```
 
-2) Check Robustness
-Configuire the following parameters and run advRobustness.py
+2) Check Robustness -- Configuire the following parameters and run advRobustness.py
 ```
 neurons_in_layers = [28*28, 100, 10] # List defining the architecture of the SNN
 num_steps = 10 # Number of timesteps
