@@ -16,7 +16,7 @@ import itertools
 
 batch_size = 128
 data_path = '/data/mnist'
-location = 'C:\\Users\\soham\\PycharmProjects\\Z3py'
+location = '.'
 neurons_in_layers = [28*28, 100, 10]
 num_steps = 10
 beta = 0.95

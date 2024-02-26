@@ -1,0 +1,72 @@
+INFO:root:Model loaded
+INFO:root:Accuracy of the model : 62%
+INFO:root:
+INFO:root:[[0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.81012658 0.65909091 0.62318841 0.52      ]
+ [0.59493671 0.72727273 0.23188406 0.08      ]
+ [0.81012658 0.70454545 0.79710145 0.72      ]
+ [0.73417722 0.90909091 0.17391304 0.08      ]]
+INFO:root:Completed for delta = 1, sample = 0 in 16.985675811767578 sec as unsat
+INFO:root:Completed for delta = 1, sample = 1 in 12.817495584487915 sec as unsat
+INFO:root:Completed for delta = 1, sample = 2 in 8.93558406829834 sec as unsat
+INFO:root:Completed for delta = 1, sample = 3 in 11.926678895950317 sec as unsat
+INFO:root:Completed for delta = 1, sample = 4 in 3.5700104236602783 sec as sat
+INFO:root:Completed for delta = 1 with 4 in avg time 10.847088956832886 sec
+INFO:root:Completed for delta = 2, sample = 0 in 64.56852889060974 sec as unsat
+INFO:root:Completed for delta = 2, sample = 1 in 218.48438668251038 sec as unsat
+INFO:root:Completed for delta = 2, sample = 2 in 2.0885238647460938 sec as sat
+INFO:root:Completed for delta = 2, sample = 3 in 142.23650312423706 sec as unsat
+INFO:root:Completed for delta = 2, sample = 4 in 2.614718437194824 sec as sat
+INFO:root:Completed for delta = 2 with 3 in avg time 85.99853219985962 sec
+INFO:root:Completed for delta = 3, sample = 0 in 3586.8596529960632 sec as unsat
+INFO:root:Completed for delta = 3, sample = 1 in 1908.6056628227234 sec as unsat
+INFO:root:Completed for delta = 3, sample = 2 in 3.3490097522735596 sec as sat
+INFO:root:Completed for delta = 3, sample = 3 in 2220.0849182605743 sec as unsat
+INFO:root:Completed for delta = 3, sample = 4 in 4.5270466804504395 sec as sat
+INFO:root:Completed for delta = 3 with 3 in avg time 1544.685258102417 sec
+INFO:root:[[0.84810127 0.75       0.82608696 0.84      ]
+ [0.87341772 0.70454545 0.71014493 0.6       ]
+ [0.62025316 0.68181818 0.20289855 0.08      ]
+ [0.6835443  0.77272727 0.24637681 0.08      ]
+ [0.84810127 0.75       0.82608696 0.84      ]]
+INFO:root:Completed for delta = 1, sample = 0 in 10.475884914398193 sec as unsat
+INFO:root:Completed for delta = 1, sample = 1 in 10.157680988311768 sec as unsat
+INFO:root:Completed for delta = 1, sample = 2 in 3.641918182373047 sec as sat
+INFO:root:Completed for delta = 1, sample = 3 in 7.120219945907593 sec as unsat
+INFO:root:Completed for delta = 1, sample = 4 in 8.40928864479065 sec as unsat
+INFO:root:Completed for delta = 1 with 4 in avg time 7.96099853515625 sec
+INFO:root:Completed for delta = 2, sample = 0 in 138.1643147468567 sec as unsat
+INFO:root:Completed for delta = 2, sample = 1 in 111.79011750221252 sec as unsat
+INFO:root:Completed for delta = 2, sample = 2 in 16.882766246795654 sec as sat
+INFO:root:Completed for delta = 2, sample = 3 in 3.638303279876709 sec as sat
+INFO:root:Completed for delta = 2, sample = 4 in 75.24957180023193 sec as unsat
+INFO:root:Completed for delta = 2 with 3 in avg time 69.1450147151947 sec
+INFO:root:Completed for delta = 3, sample = 0 in 3545.1750996112823 sec as unsat
+INFO:root:Completed for delta = 3, sample = 1 in 1297.645340204239 sec as unsat
+INFO:root:Completed for delta = 3, sample = 2 in 2.660872459411621 sec as sat
+INFO:root:Completed for delta = 3, sample = 3 in 6.083211898803711 sec as sat
+INFO:root:Completed for delta = 3, sample = 4 in 1311.1745302677155 sec as unsat
+INFO:root:Completed for delta = 3 with 3 in avg time 1232.5478108882903 sec
+INFO:root:[[0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.64556962 0.86363636 0.23188406 0.08      ]
+ [0.72151899 0.59090909 0.50724638 0.4       ]
+ [0.7721519  0.68181818 0.71014493 0.72      ]
+ [0.65822785 0.79545455 0.2173913  0.08      ]]
+INFO:root:Completed for delta = 1, sample = 0 in 14.353383541107178 sec as unsat
+INFO:root:Completed for delta = 1, sample = 1 in 2.6828019618988037 sec as sat
+INFO:root:Completed for delta = 1, sample = 2 in 18.284624814987183 sec as unsat
+INFO:root:Completed for delta = 1, sample = 3 in 12.737420082092285 sec as unsat
+INFO:root:Completed for delta = 1, sample = 4 in 4.2177135944366455 sec as sat
+INFO:root:Completed for delta = 1 with 3 in avg time 10.45518879890442 sec
+INFO:root:Completed for delta = 2, sample = 0 in 29.11191749572754 sec as unsat
+INFO:root:Completed for delta = 2, sample = 1 in 4.0498268604278564 sec as sat
+INFO:root:Completed for delta = 2, sample = 2 in 121.19274640083313 sec as unsat
+INFO:root:Completed for delta = 2, sample = 3 in 121.71536493301392 sec as unsat
+INFO:root:Completed for delta = 2, sample = 4 in 5.556957721710205 sec as sat
+INFO:root:Completed for delta = 2 with 3 in avg time 56.32536268234253 sec
+INFO:root:Completed for delta = 3, sample = 0 in 2263.2482402324677 sec as unsat
+INFO:root:Completed for delta = 3, sample = 1 in 3.674574613571167 sec as sat
+INFO:root:Completed for delta = 3, sample = 2 in 663.0621383190155 sec as unsat
+INFO:root:Completed for delta = 3, sample = 3 in 4809.495830535889 sec as unsat
+INFO:root:Completed for delta = 3, sample = 4 in 3.791412115097046 sec as sat
+INFO:root:Completed for delta = 3 with 3 in avg time 1548.654439163208 sec

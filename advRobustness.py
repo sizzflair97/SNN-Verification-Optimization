@@ -14,7 +14,7 @@ neurons_in_layers = [28*28, 100, 10]
 num_steps = 10
 data_path = '/data/mnist'
 delta = [1]
-location = 'C:\\Users\\soham\\PycharmProjects\\Z3py'
+location = '.'
 
 transform = transforms.Compose([
     transforms.Resize((28, 28)),

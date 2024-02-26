@@ -1,0 +1,36 @@
+INFO:root:Model loaded
+INFO:root:Accuracy of the model : 66%
+INFO:root:
+INFO:root:[[0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.81012658 0.65909091 0.62318841 0.52      ]
+ [0.59493671 0.72727273 0.23188406 0.08      ]
+ [0.81012658 0.70454545 0.79710145 0.72      ]
+ [0.73417722 0.90909091 0.17391304 0.08      ]]
+INFO:root:Completed for delta = 2, sample = 0 in 371.8071253299713 sec as unsat
+INFO:root:Completed for delta = 2, sample = 1 in 240.93232679367065 sec as unsat
+INFO:root:Completed for delta = 2, sample = 2 in 8.35739278793335 sec as sat
+INFO:root:Completed for delta = 2, sample = 3 in 129.38962364196777 sec as unsat
+INFO:root:Completed for delta = 2, sample = 4 in 4.373756647109985 sec as sat
+INFO:root:Completed for delta = 2 with 3 in avg time 150.9720450401306 sec
+INFO:root:[[0.84810127 0.75       0.82608696 0.84      ]
+ [0.87341772 0.70454545 0.71014493 0.6       ]
+ [0.62025316 0.68181818 0.20289855 0.08      ]
+ [0.6835443  0.77272727 0.24637681 0.08      ]
+ [0.84810127 0.75       0.82608696 0.84      ]]
+INFO:root:Completed for delta = 2, sample = 0 in 281.35877299308777 sec as unsat
+INFO:root:Completed for delta = 2, sample = 1 in 237.74727368354797 sec as unsat
+INFO:root:Completed for delta = 2, sample = 2 in 5.6705522537231445 sec as sat
+INFO:root:Completed for delta = 2, sample = 3 in 6.606204271316528 sec as sat
+INFO:root:Completed for delta = 2, sample = 4 in 267.49575543403625 sec as unsat
+INFO:root:Completed for delta = 2 with 3 in avg time 159.77571172714232 sec
+INFO:root:[[0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.64556962 0.86363636 0.23188406 0.08      ]
+ [0.72151899 0.59090909 0.50724638 0.4       ]
+ [0.7721519  0.68181818 0.71014493 0.72      ]
+ [0.65822785 0.79545455 0.2173913  0.08      ]]
+INFO:root:Completed for delta = 2, sample = 0 in 364.48383378982544 sec as unsat
+INFO:root:Completed for delta = 2, sample = 1 in 5.608273983001709 sec as sat
+INFO:root:Completed for delta = 2, sample = 2 in 119.76634883880615 sec as unsat
+INFO:root:Completed for delta = 2, sample = 3 in 237.32040572166443 sec as unsat
+INFO:root:Completed for delta = 2, sample = 4 in 2.397766351699829 sec as sat
+INFO:root:Completed for delta = 2 with 3 in avg time 145.9153257369995 sec
