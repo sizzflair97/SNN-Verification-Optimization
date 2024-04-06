@@ -21,6 +21,7 @@ if __name__ == "__main__":
     try:
         parser = parse()
         log_name:str = ""
+        assert parser.dnp and parser.reuse_level and parser.prefix
         if parser.dnp: log_name += "DNP"
         if parser.reuse_level: log_name += ("_" if log_name else "") + f"M{parser.reuse_level}"
         if log_name == "": log_name = "Control"
@@ -28,7 +29,7 @@ if __name__ == "__main__":
         run_test(CFG(log_name,
                      parser.dnp,
                      parser.reuse_level))
-    except ArgumentError as e:
+    except AssertionError as e:
         if mp:
             pool = Pool(processes=min(len(cfgs), 8))
             pool.map(run_test, cfgs)
