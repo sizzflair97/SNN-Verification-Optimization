@@ -576,7 +576,7 @@ def cumulative(sol, s, d, r, b,times_min,times_max1):
   times_max = times_max1 + max(d)
   for t in range(times_min, times_max + 1):
     for i in tasks:
-      sol.add(Sum([(If(s[i] <= t,1,0) * If(t < s[i] + d[i],1,0))*r[i] for i in tasks])  <= b)
+      sol.add(Sum([(If(s[i] <= t,1,0) * If(t < s[i] + d[i],1,0))*r[i] for i in tasks])  <= b) # type: ignore
 
   # Somewhat experimental:
   # This constraint is needed to contrain the upper limit of b.

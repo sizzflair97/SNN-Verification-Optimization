@@ -21,6 +21,7 @@ class IrisNet(nn.Module):
 
         # Record the final layer
         spk2_rec = []
+        mem1_rec = []
         mem2_rec = []
 
         for step in range(num_steps):
@@ -29,6 +30,9 @@ class IrisNet(nn.Module):
             cur2 = self.fc2(spk1)
             spk2, mem2 = self.lif2(cur2, mem2)
             spk2_rec.append(spk2)
+            mem1_rec.append(mem1)
             mem2_rec.append(mem2)
 
-        return torch.stack(spk2_rec, dim=0), torch.stack(mem2_rec, dim=0)
+        mem_return = torch.stack(mem1_rec, dim=0), torch.stack(mem2_rec, dim=0)
+        
+        return torch.stack(spk2_rec, dim=0), mem_return

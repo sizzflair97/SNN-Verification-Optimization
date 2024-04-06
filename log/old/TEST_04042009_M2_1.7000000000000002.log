@@ -1,0 +1,33 @@
+INFO:root:cfg(log_name='M2_1.7000000000000002', use_DNP=False, reuse_level=2, eps=1.7000000000000002, mp=True, num_samples=15, deltas=[1])
+INFO:root:Model loaded
+INFO:root:Accuracy of the model : 60%
+INFO:root:
+INFO:root:[[0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.81012658 0.65909091 0.62318841 0.52      ]
+ [0.59493671 0.72727273 0.23188406 0.08      ]
+ [0.81012658 0.70454545 0.79710145 0.72      ]
+ [0.73417722 0.90909091 0.17391304 0.08      ]
+ [0.84810127 0.75       0.82608696 0.84      ]
+ [0.87341772 0.70454545 0.71014493 0.6       ]
+ [0.62025316 0.68181818 0.20289855 0.08      ]
+ [0.6835443  0.77272727 0.24637681 0.08      ]
+ [0.84810127 0.75       0.82608696 0.84      ]
+ [0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.64556962 0.86363636 0.23188406 0.08      ]
+ [0.72151899 0.59090909 0.50724638 0.4       ]
+ [0.7721519  0.68181818 0.71014493 0.72      ]
+ [0.65822785 0.79545455 0.2173913  0.08      ]]
+INFO:root:Completed for delta = 1, sample = 0 in 28.003355741500854 sec as unsat
+INFO:root:Completed for delta = 1, sample = 1 in 26.041582584381104 sec as unsat
+INFO:root:Completed for delta = 1, sample = 2 in 30.0946307182312 sec as unsat
+INFO:root:Completed for delta = 1, sample = 3 in 49.53880286216736 sec as unsat
+INFO:root:Completed for delta = 1, sample = 4 in 26.586212158203125 sec as unsat
+INFO:root:Completed for delta = 1, sample = 5 in 16.996521711349487 sec as unsat
+INFO:root:Completed for delta = 1, sample = 6 in 33.301703453063965 sec as unsat
+INFO:root:Completed for delta = 1, sample = 7 in 16.88497018814087 sec as unsat
+INFO:root:Completed for delta = 1, sample = 8 in 19.797520399093628 sec as unsat
+INFO:root:Completed for delta = 1, sample = 9 in 20.167011737823486 sec as unsat
+INFO:root:Completed for delta = 1, sample = 10 in 29.54246711730957 sec as unsat
+INFO:root:Completed for delta = 1, sample = 11 in 28.847711086273193 sec as unsat
+INFO:root:Completed for delta = 1, sample = 12 in 23.055131912231445 sec as sat
+INFO:root:Completed for delta = 1, sample = 13 in 32.403308391571045 sec as unsat

@@ -1,14 +1,12 @@
-from dataclasses import dataclass
-from typing import Literal
-
-TLogName = Literal["Control", "DNP", "DNP_M1", "DNP_M2", "M1", "M2"]
+from dataclasses import dataclass, field
+from typing import List, Literal
 
 @dataclass
-class cfg:
-    log_name:TLogName = "DNP_M1"
+class CFG:
+    log_name:str = "M2"
     use_DNP:bool = True
     reuse_level:Literal[0,1,2] = 1
-
+    # eps:float = 1e-1
     #Delta-perturbation params
-    num_samples = 15
-    deltas = [1,2,3]
+    num_samples:int = 15
+    deltas:List[int] = field(default_factory=lambda:[1,2,3])
