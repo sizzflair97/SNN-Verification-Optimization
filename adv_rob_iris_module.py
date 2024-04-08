@@ -92,8 +92,8 @@ def run_test(cfg:CFG, log_name:Union[None, str]=None):
     logging.basicConfig(filename="log/" + log_name, level=logging.INFO)
     info(cfg)
 
-    np.random.seed(42)
-    torch.manual_seed(42)
+    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
     torch.use_deterministic_algorithms(True)
 
     #Load dsets

@@ -4,10 +4,8 @@ from adv_rob_iris_module import run_test
 from numpy import arange
 from argparse import ArgumentError, ArgumentParser
 cfgs = [
-    CFG("Control", False, 0),
-    CFG("DNP", True, 0),
-    CFG("DNP_M2", True, 2),
-    CFG("M2", False, 2)
+    CFG("Control", False, 0, deltas=[1]),
+    CFG("DNP", True, 0, deltas=[1]),
 ]
 
 def parse():
@@ -15,6 +13,7 @@ def parse():
     parser.add_argument("-p", dest="prefix", type=str)
     parser.add_argument("-d", dest="dnp", action="store_true")
     parser.add_argument("--reuse_level", dest="reuse_level", type=int)
+    parser.add_argument("--seed", dest="seed", type=int, default=42)
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -28,7 +27,8 @@ if __name__ == "__main__":
         log_name = parser.prefix + "_" + log_name
         run_test(CFG(log_name,
                      parser.dnp,
-                     parser.reuse_level))
+                     parser.reuse_level,
+                     parser.seed))
     except AssertionError as e:
         if mp:
             pool = Pool(processes=min(len(cfgs), 8))

@@ -178,7 +178,7 @@ def gen_delta_reuse(cfg:CFG,
                     control:ModelRef):
     sum_val = []
     prop:List[BoolRef] = []
-    reuse_flag = cfg.reuse_level != 0
+    reuse_flag = True
     for timestep, spike_train in enumerate(sample_spike):
         #Variables to calculate the total perturbation.
         for i, spike in enumerate(spike_train.view(num_input)):

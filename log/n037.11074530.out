@@ -1,0 +1,89 @@
+python3 batch_test.py  --reuse_level 0 --seed 42 -p 11074530
+CFG(log_name='DNP', use_DNP=True, reuse_level=0, seed=42, num_samples=15, deltas=[1])
+Epoch 0, Iteration 0
+Epoch 0, Iteration 20
+Epoch 0, Iteration 40
+Epoch 0, Iteration 60
+Epoch 0, Iteration 80
+Epoch 0, Iteration 100
+Epoch 0, Iteration 120
+Epoch 0, Iteration 140
+Saving model.pth
+Accuracy of the model : 31%
+
+[[0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.81012658 0.65909091 0.62318841 0.52      ]
+ [0.59493671 0.72727273 0.23188406 0.08      ]
+ [0.81012658 0.70454545 0.79710145 0.72      ]
+ [0.73417722 0.90909091 0.17391304 0.08      ]
+ [0.84810127 0.75       0.82608696 0.84      ]
+ [0.87341772 0.70454545 0.71014493 0.6       ]
+ [0.62025316 0.68181818 0.20289855 0.08      ]
+ [0.6835443  0.77272727 0.24637681 0.08      ]
+ [0.84810127 0.75       0.82608696 0.84      ]
+ [0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.64556962 0.86363636 0.23188406 0.08      ]
+ [0.72151899 0.59090909 0.50724638 0.4       ]
+ [0.7721519  0.68181818 0.71014493 0.72      ]
+ [0.65822785 0.79545455 0.2173913  0.08      ]]
+Completed for delta = 1, sample = 0 in 207.56657433509827 sec as sat
+Completed for delta = 1, sample = 1 in 139.26153254508972 sec as sat
+Completed for delta = 1, sample = 2 in 159.43383979797363 sec as sat
+Completed for delta = 1, sample = 3 in 189.87635159492493 sec as sat
+Completed for delta = 1, sample = 4 in 129.91279935836792 sec as sat
+Completed for delta = 1, sample = 5 in 145.86812710762024 sec as sat
+Completed for delta = 1, sample = 6 in 157.19438862800598 sec as sat
+Completed for delta = 1, sample = 7 in 92.33093762397766 sec as sat
+Completed for delta = 1, sample = 8 in 101.71995186805725 sec as sat
+Completed for delta = 1, sample = 9 in 384.02345061302185 sec as sat
+Completed for delta = 1, sample = 10 in 242.3492772579193 sec as sat
+Completed for delta = 1, sample = 11 in 112.8134377002716 sec as sat
+Completed for delta = 1, sample = 12 in 133.50691413879395 sec as sat
+Completed for delta = 1, sample = 13 in 164.7980523109436 sec as sat
+Completed for delta = 1, sample = 14 in 87.93246221542358 sec as sat
+Completed for delta = 1 with 0 in avg time 163.23920647303262 sec
+
+CFG(log_name='Control', use_DNP=False, reuse_level=0, seed=42, num_samples=15, deltas=[1])
+Epoch 0, Iteration 0
+Epoch 0, Iteration 20
+Epoch 0, Iteration 40
+Epoch 0, Iteration 60
+Epoch 0, Iteration 80
+Epoch 0, Iteration 100
+Epoch 0, Iteration 120
+Epoch 0, Iteration 140
+Saving model.pth
+Accuracy of the model : 31%
+
+[[0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.81012658 0.65909091 0.62318841 0.52      ]
+ [0.59493671 0.72727273 0.23188406 0.08      ]
+ [0.81012658 0.70454545 0.79710145 0.72      ]
+ [0.73417722 0.90909091 0.17391304 0.08      ]
+ [0.84810127 0.75       0.82608696 0.84      ]
+ [0.87341772 0.70454545 0.71014493 0.6       ]
+ [0.62025316 0.68181818 0.20289855 0.08      ]
+ [0.6835443  0.77272727 0.24637681 0.08      ]
+ [0.84810127 0.75       0.82608696 0.84      ]
+ [0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.64556962 0.86363636 0.23188406 0.08      ]
+ [0.72151899 0.59090909 0.50724638 0.4       ]
+ [0.7721519  0.68181818 0.71014493 0.72      ]
+ [0.65822785 0.79545455 0.2173913  0.08      ]]
+Completed for delta = 1, sample = 0 in 188.88711380958557 sec as sat
+Completed for delta = 1, sample = 1 in 187.25800204277039 sec as sat
+Completed for delta = 1, sample = 2 in 123.85487818717957 sec as sat
+Completed for delta = 1, sample = 3 in 179.64279556274414 sec as sat
+Completed for delta = 1, sample = 4 in 168.95425534248352 sec as sat
+Completed for delta = 1, sample = 5 in 124.40668249130249 sec as sat
+Completed for delta = 1, sample = 6 in 185.6062421798706 sec as sat
+Completed for delta = 1, sample = 7 in 132.75133109092712 sec as sat
+Completed for delta = 1, sample = 8 in 131.38125324249268 sec as sat
+Completed for delta = 1, sample = 9 in 441.7957136631012 sec as sat
+Completed for delta = 1, sample = 10 in 241.28576374053955 sec as sat
+Completed for delta = 1, sample = 11 in 151.61986565589905 sec as sat
+Completed for delta = 1, sample = 12 in 111.87035727500916 sec as sat
+Completed for delta = 1, sample = 13 in 278.26488304138184 sec as sat
+Completed for delta = 1, sample = 14 in 112.88829350471497 sec as sat
+Completed for delta = 1 with 0 in avg time 184.03116205533345 sec
+
