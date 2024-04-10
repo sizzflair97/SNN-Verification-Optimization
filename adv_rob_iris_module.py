@@ -1,4 +1,7 @@
 # %%
+from multiprocessing import Pool
+import multiprocessing
+from tabnanny import check
 import functools, time, logging, json
 from time import localtime, strftime
 from sklearn import datasets
@@ -117,8 +120,10 @@ def run_test(cfg:CFG, log_name:Union[None, str]=None):
     #Node eqns
     assign:List[BoolRef] = []
     node_eqn:List[BoolRef] = gen_node_eqns(weights, spike_indicators, potentials)
-    if cfg.use_DNP:
+    if cfg.np_level == 1:
         node_eqn += gen_DNP(weights, spike_indicators)
+    elif cfg.np_level == 2:
+        node_eqn += gen_GNP(weights, spike_indicators)
 
     #Randomly draw samples
     samples = iris_data[np.random.choice(range(len(iris_data)), cfg.num_samples)] # type: ignore
@@ -128,9 +133,10 @@ def run_test(cfg:CFG, log_name:Union[None, str]=None):
     delta_v = {d: 0 for d in cfg.deltas}
     for delta in cfg.deltas:
         avt = 0
-        for sample_no, sample in enumerate(samples):
-            sample_spike = spikegen.rate(torch.tensor(sample, dtype=torch.float), num_steps=num_steps) # type: ignore
-            
+        
+        global check_sample
+        def check_sample(sample_tuple):
+            sample_no, sample_spike = sample_tuple
             label, control = forward_net(sample_spike.view(num_steps, -1), spike_indicators, assign+node_eqn+pot_init)
             # spk_rec, mem_rec = net(sample_spike.view(num_steps, -1)) # epsilon 1~5
             # label = int(spk_rec.sum(dim=0).argmax())
@@ -160,9 +166,55 @@ def run_test(cfg:CFG, log_name:Union[None, str]=None):
             tss = time.time()-tx
             # print(f'Completed for delta = {delta}, sample = {sample_no} in {tss} sec as {res}')
             info(f'Completed for delta = {delta}, sample = {sample_no} in {tss} sec as {res}')
-            avt = (avt*sample_no + tss)/(sample_no+1)
+            return tss
+            
+        sample_spks = [spikegen.rate(torch.tensor(sample, dtype=torch.float), num_steps=num_steps) # type: ignore
+                       for sample in samples]
+        
+        if mp:
+            with Pool() as pool:
+                tss_lst = pool.map(check_sample, enumerate(sample_spks))
+            avt = sum(tss_lst)/len(sample_spks)
+        
+        else:
+            for sample_no, sample_spike in enumerate(sample_spks):
+                tss = check_sample((sample_no, sample_spike))
+            
+            # sample_spike = spikegen.rate(torch.tensor(sample, dtype=torch.float), num_steps=num_steps) # type: ignore
+            
+            # label, control = forward_net(sample_spike.view(num_steps, -1), spike_indicators, assign+node_eqn+pot_init)
+            # # spk_rec, mem_rec = net(sample_spike.view(num_steps, -1)) # epsilon 1~5
+            # # label = int(spk_rec.sum(dim=0).argmax())
+            # prop = gen_delta_reuse(cfg, sample_spike, spike_indicators, potentials, delta, control)
+            # # Output property
+            # #tx = time.time()
+            # op = []
+            # intend_sum = sum([2 * spike_indicators[(control[label].as_long(), 2, timestep + 1)] for timestep in range(num_steps)]) # type: ignore
+            # for t in range(num_output):
+            #     if t != op:
+            #         op.append(
+            #             Not(intend_sum > sum([2 * spike_indicators[(t, 2, timestep + 1)] for timestep in range(num_steps)]))
+            #         )
+            # #print(f'Output Property Done in {time.time() - tx} sec')
+            
+            # S = Solver()
+            # S.add(assign+node_eqn+pot_init+prop+op)
+            # tx = time.time()
+            # res = S.check()
+            # if str(res) == 'unsat':
+            #     delta_v[delta] += 1
+            # # else:
+            # #     model = S.model()
+            # #     dump(model, spike_indicators, potentials)
+            # #     pdb.set_trace()
+            # del S
+            # tss = time.time()-tx
+            # # print(f'Completed for delta = {delta}, sample = {sample_no} in {tss} sec as {res}')
+            # info(f'Completed for delta = {delta}, sample = {sample_no} in {tss} sec as {res}')
+                avt = (avt*sample_no + tss)/(sample_no+1)
         # print(f'Completed for delta = {delta} with {delta_v[delta]} in avg time {avt} sec')
         info(f'Completed for delta = {delta} with {delta_v[delta]} in avg time {avt} sec')
+        del check_sample
 
     print()
 
