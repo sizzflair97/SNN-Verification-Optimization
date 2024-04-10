@@ -4,7 +4,7 @@ import torch
 
 #Model default params
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-mp = True
+mp = False
 shuffle = True
 train = True
 num_epochs = 1

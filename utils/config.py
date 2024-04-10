@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Literal
+from typing import List, Literal, Tuple
 
 @dataclass
 class CFG:
@@ -10,4 +10,4 @@ class CFG:
     # eps:float = 1e-1
     #Delta-perturbation params
     num_samples:int = 15
-    deltas:List[int] = field(default_factory=lambda:[1,2,3])
+    deltas:Tuple[int,...] = (1,2,3)

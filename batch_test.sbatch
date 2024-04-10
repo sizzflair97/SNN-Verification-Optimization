@@ -6,6 +6,6 @@
 #SBATCH -e log/%N.%j.err 
 
 source ~/miniconda3/bin/activate smt
-prmpt="python3 batch_test.py $dnp --reuse_level $memory --seed $seed -p ${SLURM_JOB_ID}"
+prmpt="python3 batch_test.py $dnp --reuse_level $memory --seed $seed -p ${SLURM_JOB_ID} --delta_max 1"
 echo "$prmpt"
 $prmpt
