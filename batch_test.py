@@ -6,7 +6,7 @@ from argparse import ArgumentParser
 deltas = (1,2,3)
 cfgs = [
     CFG("Control", np_level=0, deltas=deltas),
-    CFG("DNP", np_level=1, deltas=deltas),
+    # CFG("DNP", np_level=1, deltas=deltas),
     # CFG("GNP", np_level=2, deltas=deltas),
 ]
 

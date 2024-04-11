@@ -46,15 +46,31 @@ def gen_initial_potential_term(potentials:PType):
 
 def gen_DNP(weights:WType, spike_indicators:SType):
     node_eqn:List[BoolRef] = []
+    dns = []
     for in_layer, (n_in_nodes, n_out_nodes) in enumerate(zip(layers[:-1], layers[1:])):
+        prev_dns = dns # List to save dead neurons of prev. layer.
+        dns = [] # List to save dead neurons of current layer.
         for i in range(n_out_nodes):
-            node_eqn.append(
-                Implies(
-                    Sum([If(weights[(k, i, in_layer)]>=0, weights[(k, i, in_layer)], 0)
-                         for k in range(n_in_nodes)])
-                    < threshold * (1-beta),
+            if in_layer >= 1 and prev_dns:
+                # do not calc neurons to get max_current in prev_dns, because there are only dead neurons.
+                S_max = sum(max(0, weights[(k, i, in_layer)]) for k in range(n_in_nodes) if (k, in_layer) not in prev_dns)
+            else:
+                S_max = sum(max(0, weights[(k, i, in_layer)]) for k in range(n_in_nodes))
+            score = 1-threshold*(1-beta)/(S_max)
+            if score <= 0:
+                dns.append((i, in_layer+1)) # save dead neuron: (node_idx, layer_idx)
+                node_eqn.append(
                     Not(Or([spike_indicators[(i, in_layer+1, t)]
-                            for t in range(1, num_steps+1)]))))
+                            for t in range(1, num_steps+1)]))) # type: ignore
+                
+        
+            # node_eqn.append(
+            #     Implies(
+            #         Sum([If(weights[(k, i, in_layer)]>=0, weights[(k, i, in_layer)], 0)
+            #              for k in range(n_in_nodes)])
+            #         < threshold * (1-beta),
+            #         Not(Or([spike_indicators[(i, in_layer+1, t)]
+            #                 for t in range(1, num_steps+1)]))))
     return node_eqn
 
 def gen_GNP(weights:WType, spike_indicators:SType):

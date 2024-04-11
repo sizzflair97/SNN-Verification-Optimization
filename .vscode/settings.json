@@ -30,5 +30,7 @@
     "python.analysis.inlayHints.callArgumentNames": "off",
     "python.analysis.inlayHints.variableTypes": false,
     "python.analysis.inlayHints.pytestParameters": false,
-    "python.analysis.inlayHints.functionReturnTypes": false
+    "python.analysis.inlayHints.functionReturnTypes": false,
+    "editor.fontFamily": "'Cascadia Code', Consolas, 'Courier New', monospace",
+    "editor.fontLigatures": true
 }

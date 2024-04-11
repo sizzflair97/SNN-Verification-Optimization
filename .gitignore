@@ -3,3 +3,4 @@ Models
 *.log
 *.err
 *.out
+model_iris.pth

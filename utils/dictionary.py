@@ -6,7 +6,7 @@ import torch
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 mp = True #
 shuffle = True # 
-train = True # 
+train = False # 
 num_epochs = 1 # 1 default
 file_name = 'model_iris.pth'
 num_input = 4
