@@ -13,7 +13,7 @@ cfgs = [
 def parse():
     parser = ArgumentParser()
     parser.add_argument("-p", dest="prefix", type=str)
-    parser.add_argument("--np_level", dest="np", type=int)
+    parser.add_argument("--np_level", dest="np_level", type=int)
     parser.add_argument("--reuse_level", dest="reuse_level", type=int)
     parser.add_argument("--seed", dest="seed", type=int, default=42)
     return parser.parse_args()
@@ -22,13 +22,13 @@ if __name__ == "__main__":
     try:
         parser = parse()
         log_name:str = ""
-        assert parser.np and parser.reuse_level and parser.prefix
-        if parser.np: log_name += "DNP"
+        assert all(hasattr(parser, attr) for attr in "np_level reuse_level seed prefix".split())
+        if parser.np_level: log_name += "DNP"
         if parser.reuse_level: log_name += ("_" if log_name else "") + f"M{parser.reuse_level}"
         if log_name == "": log_name = "Control"
-        log_name = parser.prefix + "_" + log_name
+        if parser.prefix: log_name = parser.prefix + "_" + log_name 
         run_test(CFG(log_name,
-                     parser.np,
+                     parser.np_level,
                      parser.reuse_level,
                      parser.seed))
     except AssertionError as e:

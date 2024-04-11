@@ -1,0 +1,63 @@
+python3 batch_test.py --np_level 0 --reuse_level 0 --seed 617 -p 11075959
+CFG(log_name='11075959_Control', np_level=0, reuse_level=0, seed=617, num_samples=15, deltas=(1, 2, 3))
+Model loaded
+Accuracy of the model : 64%
+
+[[0.58227848 0.70454545 0.2173913  0.08      ]
+ [0.81012658 0.72727273 0.65217391 0.6       ]
+ [0.58227848 0.70454545 0.2173913  0.08      ]
+ [0.64556962 0.56818182 0.43478261 0.44      ]
+ [0.81012658 0.72727273 0.65217391 0.6       ]
+ [1.         0.86363636 0.92753623 0.8       ]
+ [0.62025316 0.70454545 0.2173913  0.08      ]
+ [0.65822785 0.93181818 0.2173913  0.04      ]
+ [0.60759494 0.77272727 0.23188406 0.08      ]
+ [0.75949367 0.65909091 0.65217391 0.6       ]
+ [0.64556962 0.86363636 0.23188406 0.08      ]
+ [0.69620253 0.52272727 0.57971014 0.52      ]
+ [0.65822785 0.93181818 0.2173913  0.04      ]
+ [0.87341772 0.70454545 0.7826087  0.84      ]
+ [0.72151899 0.68181818 0.60869565 0.48      ]]
+Completed for delta = 1, sample = 14 in 11.286584377288818 sec as sat
+Completed for delta = 1, sample = 10 in 29.773240566253662 sec as unsat
+Completed for delta = 1, sample = 1 in 13.772902965545654 sec as sat
+Completed for delta = 1, sample = 5 in 33.059908628463745 sec as unsat
+Completed for delta = 1, sample = 0 in 35.46268081665039 sec as unsat
+Completed for delta = 1, sample = 7 in 37.043048620224 sec as unsat
+Completed for delta = 1, sample = 6 in 34.41345930099487 sec as unsat
+Completed for delta = 1, sample = 3 in 35.03073978424072 sec as unsat
+Completed for delta = 1, sample = 8 in 36.0115327835083 sec as unsat
+Completed for delta = 1, sample = 4 in 34.7909722328186 sec as unsat
+Completed for delta = 1 with 0 in avg time 33.933374102910356 sec
+Completed for delta = 2, sample = 2 in 7.632335424423218 sec as sat
+Completed for delta = 2, sample = 1 in 57.17760133743286 sec as sat
+Completed for delta = 2, sample = 14 in 64.41968512535095 sec as sat
+Completed for delta = 2, sample = 10 in 375.63312911987305 sec as sat
+Completed for delta = 2, sample = 4 in 24.475504159927368 sec as sat
+Completed for delta = 2, sample = 8 in 405.36722135543823 sec as unsat
+Completed for delta = 2, sample = 0 in 449.89992237091064 sec as unsat
+Completed for delta = 2, sample = 3 in 541.4037144184113 sec as unsat
+Completed for delta = 2, sample = 12 in 544.7138829231262 sec as unsat
+Completed for delta = 2, sample = 11 in 560.0911650657654 sec as unsat
+Completed for delta = 2, sample = 6 in 654.1291694641113 sec as unsat
+Completed for delta = 2, sample = 7 in 683.4452605247498 sec as unsat
+Completed for delta = 2, sample = 13 in 824.6402976512909 sec as unsat
+Completed for delta = 2, sample = 9 in 839.6103930473328 sec as unsat
+Completed for delta = 2 with 0 in avg time 466.4153126557668 sec
+Completed for delta = 3, sample = 9 in 10.07535719871521 sec as sat
+Completed for delta = 3, sample = 4 in 28.406420707702637 sec as sat
+Completed for delta = 3, sample = 14 in 16.61970615386963 sec as sat
+Completed for delta = 3, sample = 3 in 24.25795865058899 sec as sat
+Completed for delta = 3, sample = 2 in 32.239983558654785 sec as sat
+Completed for delta = 3, sample = 8 in 181.188547372818 sec as sat
+Completed for delta = 3, sample = 0 in 198.6549789905548 sec as sat
+Completed for delta = 3, sample = 6 in 751.0174610614777 sec as sat
+Completed for delta = 3, sample = 1 in 6884.880208015442 sec as sat
+Completed for delta = 3, sample = 10 in 213.3312315940857 sec as sat
+Completed for delta = 3, sample = 7 in 13328.93566942215 sec as unsat
+Completed for delta = 3, sample = 12 in 20532.542851686478 sec as unsat
+Completed for delta = 3, sample = 11 in 22814.500079631805 sec as unsat
+Completed for delta = 3, sample = 5 in 24882.172048807144 sec as unsat
+Completed for delta = 3, sample = 13 in 25835.9247944355 sec as unsat
+Completed for delta = 3 with 0 in avg time 7715.649819819132 sec
+

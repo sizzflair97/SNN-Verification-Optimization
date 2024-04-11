@@ -1,0 +1,66 @@
+python3 batch_test.py --np_level 2 --reuse_level 0 --seed 42 -p 11075962
+CFG(log_name='11075962_DNP', np_level=2, reuse_level=0, seed=42, num_samples=15, deltas=(1, 2, 3))
+Model loaded
+Accuracy of the model : 60%
+
+[[0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.81012658 0.65909091 0.62318841 0.52      ]
+ [0.59493671 0.72727273 0.23188406 0.08      ]
+ [0.81012658 0.70454545 0.79710145 0.72      ]
+ [0.73417722 0.90909091 0.17391304 0.08      ]
+ [0.84810127 0.75       0.82608696 0.84      ]
+ [0.87341772 0.70454545 0.71014493 0.6       ]
+ [0.62025316 0.68181818 0.20289855 0.08      ]
+ [0.6835443  0.77272727 0.24637681 0.08      ]
+ [0.84810127 0.75       0.82608696 0.84      ]
+ [0.84810127 0.70454545 0.63768116 0.56      ]
+ [0.64556962 0.86363636 0.23188406 0.08      ]
+ [0.72151899 0.59090909 0.50724638 0.4       ]
+ [0.7721519  0.68181818 0.71014493 0.72      ]
+ [0.65822785 0.79545455 0.2173913  0.08      ]]
+Completed for delta = 1, sample = 7 in 23.15838384628296 sec as unsat
+Completed for delta = 1, sample = 5 in 33.46506929397583 sec as unsat
+Completed for delta = 1, sample = 2 in 34.03165245056152 sec as unsat
+Completed for delta = 1, sample = 11 in 37.20523715019226 sec as unsat
+Completed for delta = 1, sample = 4 in 37.30155634880066 sec as unsat
+Completed for delta = 1, sample = 1 in 39.565733909606934 sec as sat
+Completed for delta = 1, sample = 8 in 40.19072699546814 sec as unsat
+Completed for delta = 1, sample = 3 in 41.029000997543335 sec as unsat
+Completed for delta = 1, sample = 6 in 42.41093564033508 sec as unsat
+Completed for delta = 1, sample = 12 in 43.25037622451782 sec as sat
+Completed for delta = 1, sample = 9 in 45.62625312805176 sec as unsat
+Completed for delta = 1, sample = 10 in 46.28425335884094 sec as unsat
+Completed for delta = 1, sample = 13 in 47.11208152770996 sec as unsat
+Completed for delta = 1, sample = 0 in 48.90780305862427 sec as unsat
+Completed for delta = 1 with 0 in avg time 39.24707825978597 sec
+Completed for delta = 2, sample = 12 in 8.465785264968872 sec as sat
+Completed for delta = 2, sample = 0 in 29.82093620300293 sec as sat
+Completed for delta = 2, sample = 2 in 38.52784442901611 sec as sat
+Completed for delta = 2, sample = 10 in 65.98186349868774 sec as sat
+Completed for delta = 2, sample = 14 in 360.46651554107666 sec as unsat
+Completed for delta = 2, sample = 4 in 422.16331911087036 sec as unsat
+Completed for delta = 2, sample = 8 in 452.773175239563 sec as sat
+Completed for delta = 2, sample = 9 in 560.0518765449524 sec as unsat
+Completed for delta = 2, sample = 7 in 569.1521201133728 sec as unsat
+Completed for delta = 2, sample = 3 in 741.7749664783478 sec as unsat
+Completed for delta = 2, sample = 13 in 760.4578094482422 sec as unsat
+Completed for delta = 2, sample = 1 in 857.8283576965332 sec as unsat
+Completed for delta = 2, sample = 11 in 867.7262539863586 sec as unsat
+Completed for delta = 2, sample = 5 in 913.0194454193115 sec as unsat
+Completed for delta = 2, sample = 6 in 944.154678106308 sec as sat
+Completed for delta = 2 with 0 in avg time 506.1576631387075 sec
+Completed for delta = 3, sample = 12 in 11.335592269897461 sec as sat
+Completed for delta = 3, sample = 10 in 27.67797017097473 sec as sat
+Completed for delta = 3, sample = 6 in 31.83492112159729 sec as sat
+Completed for delta = 3, sample = 0 in 40.726951122283936 sec as sat
+Completed for delta = 3, sample = 14 in 147.72174787521362 sec as sat
+Completed for delta = 3, sample = 8 in 273.4559302330017 sec as sat
+Completed for delta = 3, sample = 4 in 12515.524122476578 sec as unsat
+Completed for delta = 3, sample = 9 in 15466.646359443665 sec as unsat
+Completed for delta = 3, sample = 7 in 15970.133908510208 sec as unsat
+Completed for delta = 3, sample = 11 in 19823.362226486206 sec as unsat
+Completed for delta = 3, sample = 2 in 20036.25439620018 sec as unsat
+Completed for delta = 3, sample = 1 in 20926.97702217102 sec as unsat
+Completed for delta = 3, sample = 5 in 24427.217336416245 sec as unsat
+Completed for delta = 3 with 0 in avg time 13165.336969327927 sec
+

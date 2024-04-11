@@ -1,18 +1,17 @@
 #!/bin/bash
 
-D=("" "-d")
+NP=(0 2)
 M=(0)
-SEED=(42 617 133 1218 2016 1208 16384 14222)
-for iter in 0 1
-do
-for dnp in "${D[@]}"
+# SEED=(42 617 133 1218)
+# SEED=(42 617 133 1218 2016 1208 16384 14222)
+SEED=(768 769 770 771 772 773 774 775 776 777 778 779 780 781 782 783)
+for np in "${NP[@]}"
 do
 for memory in "${M[@]}"
 do
 for seed in "${SEED[@]}"
 do
-sbatch --export=ALL,dnp="$dnp",memory="$memory",seed="$seed" batch_test.sbatch
-done
+sbatch --export=ALL,np="$np",memory="$memory",seed="$seed" batch_test.sbatch
 done
 done
 done

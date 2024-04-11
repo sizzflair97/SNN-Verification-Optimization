@@ -1,0 +1,4 @@
+INFO:root:CFG(log_name='Control', use_DNP=False, reuse_level=0, seed=42, num_samples=15, deltas=[1])
+INFO:root:CFG(log_name='Control', use_DNP=False, reuse_level=0, seed=42, num_samples=15, deltas=[1])
+INFO:root:Saving model.pth
+INFO:root:CFG(log_name='Control', use_DNP=False, reuse_level=0, seed=42, num_samples=15, deltas=[1])
