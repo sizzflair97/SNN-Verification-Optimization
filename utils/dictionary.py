@@ -4,10 +4,17 @@ import torch
 
 #Model default params
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+<<<<<<< HEAD
 mp = True #
 shuffle = True # 
 train = False # 
 num_epochs = 1 # 1 default
+=======
+mp = False
+shuffle = True
+train = True
+num_epochs = 1
+>>>>>>> mnist
 file_name = 'model_iris.pth'
 num_input = 4
 num_hidden = 5 # 5 default

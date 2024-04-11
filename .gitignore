@@ -2,3 +2,5 @@
 Models
 *.log
 model_iris.pth
+*.err
+*.out
