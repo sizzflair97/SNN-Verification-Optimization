@@ -4,3 +4,4 @@ Models
 *.err
 *.out
 model_iris.pth
+*__pycache__*

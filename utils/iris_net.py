@@ -8,9 +8,9 @@ class IrisNet(nn.Module):
         super().__init__()
 
         # Initialize layers
-        self.fc1 = nn.Linear(num_input, num_hidden, bias=False)
+        self.fc1 = nn.Linear(num_input, num_hidden)
         self.lif1 = snn.Leaky(beta=beta)
-        self.fc2 = nn.Linear(num_hidden, num_output, bias=False)
+        self.fc2 = nn.Linear(num_hidden, num_output)
         self.lif2 = snn.Leaky(beta=beta)
 
     def forward(self, x):

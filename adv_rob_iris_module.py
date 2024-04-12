@@ -11,6 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import snntorch as snn
+from tqdm.auto import tqdm
 from z3 import *
 from collections import defaultdict
 from utils import *
@@ -18,7 +19,7 @@ from utils import *
 def info(msg:Any):
     print(msg) or logging.getLogger().info(msg) # type: ignore
 
-def prepare_net(iris_data, iris_targets) -> Net:
+def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
     loss_hist = []
     test_loss_hist = []
     counter = 0
@@ -26,30 +27,31 @@ def prepare_net(iris_data, iris_targets) -> Net:
     if train:
         net = Net()
         optimizer = torch.optim.Adam(net.parameters(), lr=5e-4, betas=(0.9, 0.999))
-        #loss = nn.CrossEntropyLoss()
-        loss = SF.mse_count_loss(correct_rate=0.8, incorrect_rate=0.2) # type: ignore
+        # loss = nn.CrossEntropyLoss()
+        loss = SF.ce_temporal_loss('reciprocal') # type: ignore
 
         # Outer training loop
         for epoch in range(num_epochs):
             iter_counter = 0
 
             # Minibatch training loop
-            for number in range(len(iris_targets)):
+            for number in (pbar:=tqdm(range(len(iris_targets)))):
                 data = torch.tensor(iris_data[number], dtype=torch.float)
                 #targets = torch.tensor([0 if i != iris_targets[number] else 1 for i in range(max(iris_targets)+1)],dtype=torch.float)
-                targets = torch.tensor([iris_targets[number]])
+                targets = torch.tensor(iris_targets[number])
 
                 # make spike trains
-                data_spike = spikegen.rate(data, num_steps=num_steps) # type: ignore
+                data_spike:Tensor = spikegen.latency(data, num_steps=num_steps, normalize=True, linear=True) # type: ignore
 
                 # forward pass
                 net.train()
                 spk_rec, mem_rec = net(data_spike.view(num_steps, -1))
 
                 # initialize the loss & sum over time
-                loss_val = torch.zeros((1), dtype=torch.float)
-                for step in range(num_steps):
-                    loss_val += loss(mem_rec[-1][step], targets)
+                # loss_val = torch.zeros((1), dtype=torch.float)
+                loss_val = loss(spk_rec[:,None,:], targets[None])
+                # for step in range(num_steps):
+                #     loss_val += loss(mem_rec[-1][step], torch.tensor(iris_targets[number]))
 
                 # Gradient calculation + weight update
                 optimizer.zero_grad()
@@ -59,8 +61,9 @@ def prepare_net(iris_data, iris_targets) -> Net:
                 # Store loss history for future plotting
                 loss_hist.append(loss_val.item())
 
-                if counter % 20 == 0:
-                    print(f"Epoch {epoch}, Iteration {iter_counter}")
+                # if counter % 20 == 0:
+                #     print(f"Epoch {epoch}, Iteration {iter_counter}")
+                pbar.desc = f"Epoch {epoch}, Iteration {iter_counter}, LogLoss {math.log(loss_hist[-1]):.3f}"
                 counter += 1
                 iter_counter += 1
         # print("Saving model.pth")
@@ -71,22 +74,23 @@ def prepare_net(iris_data, iris_targets) -> Net:
         # print("Model loaded")
         info("Model loaded")
 
-    check = True
-    if check:
-        acc = 0
-        perm = np.random.permutation(len(iris_data))
-        test_data, test_targets = torch.tensor(iris_data[perm][:100], dtype=torch.float), torch.tensor(iris_targets[perm][:100])
-        for i, data in enumerate(test_data):
-            spike_data = spikegen.rate(data, num_steps=num_steps) # type: ignore
-            spk_rec, mem_rec = net(spike_data.view(num_steps, -1))
-            idx = np.argmax(spk_rec.sum(dim=0).detach().numpy())
-            if idx == test_targets[i]:
-                acc += 1
-            else:
-                pass
-        info(f'Accuracy of the model : {acc}%')
-
-    info("")
+    acc = 0
+    # perm = np.random.permutation(len(iris_data))
+    test_data, test_targets = torch.tensor(iris_data, dtype=torch.float), torch.tensor(iris_targets)
+    for i, data in enumerate(test_data):
+        spike_data:Tensor = spikegen.latency(data, num_steps=num_steps, normalize=True) # type: ignore
+        spk_rec, mem_rec = net(spike_data.view(num_steps, -1))
+        # idx = np.argmax(spk_rec.sum(dim=0).detach().numpy())
+        # print(spk_rec)
+        if torch.sum(spk_rec) == 0:
+            print("all-zero")
+        idx = torch.argmax(spk_rec, dim=0).argmin()
+        print(idx, test_targets[i])
+        if idx == test_targets[i]:
+            acc += 1
+        else:
+            pass
+    info(f'Accuracy of the model : {acc}%\n')
     return net
 
 def run_test(cfg:CFG, log_name:Union[None, str]=None):
