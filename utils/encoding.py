@@ -135,17 +135,13 @@ def gen_node_eqns(weights:WType, spike_indicators:SType, potentials:PType):
 
 def argmax_left(s:Solver, x:List[ArithRef], ix:ArithRef, max_val:ArithRef):
     z3utils.maximum(s, max_val, x)
-    
     n = len(x)
     for _i in range(n):
-        _ne_left = And(
-            [max_val != _l for _l in x[:_i]]
-        )
+        _ne_left = And([max_val != _l for _l in x[:_i]])
         s.add(
-            Implies(
-                And(_ne_left,
-                    x[_i] == max_val),
-                _i==ix))
+            Implies(And(_ne_left,
+                        x[_i] == max_val),
+                    _i==ix))
     
 
 def forward_net(sample_spike:torch.Tensor,

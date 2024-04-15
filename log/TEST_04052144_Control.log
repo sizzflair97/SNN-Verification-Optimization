@@ -53,3 +53,15 @@ INFO:root:Completed for delta = 3, sample = 0 in 25.402588605880737 sec as sat
 INFO:root:Completed for delta = 3, sample = 1 in 16896.516222953796 sec as unsat
 INFO:root:Completed for delta = 3, sample = 2 in 14672.51473402977 sec as unsat
 INFO:root:Completed for delta = 3, sample = 3 in 23299.995010852814 sec as unsat
+INFO:root:Completed for delta = 3, sample = 4 in 9983.196886062622 sec as unsat
+INFO:root:Completed for delta = 3, sample = 5 in 19246.021126031876 sec as unsat
+INFO:root:Completed for delta = 3, sample = 6 in 18.88278841972351 sec as sat
+INFO:root:Completed for delta = 3, sample = 7 in 13193.465835571289 sec as unsat
+INFO:root:Completed for delta = 3, sample = 8 in 936.2248976230621 sec as sat
+INFO:root:Completed for delta = 3, sample = 9 in 16225.356268167496 sec as unsat
+INFO:root:Completed for delta = 3, sample = 10 in 18.656057834625244 sec as sat
+INFO:root:Completed for delta = 3, sample = 11 in 19219.29054236412 sec as unsat
+INFO:root:Completed for delta = 3, sample = 12 in 23.556129693984985 sec as sat
+INFO:root:Completed for delta = 3, sample = 13 in 24775.12055039406 sec as unsat
+INFO:root:Completed for delta = 3, sample = 14 in 76.43719363212585 sec as sat
+INFO:root:Completed for delta = 3 with 9 in avg time 10574.042455482482 sec
