@@ -6,7 +6,7 @@ from argparse import ArgumentParser
 deltas = (1,2,3)
 cfgs = [
     # CFG("Control", np_level=0, deltas=deltas),
-    CFG("DNP", np_level=1, deltas=deltas),
+    CFG("Manual", np_level=1, deltas=deltas, seed=0),
     # CFG("GNP", np_level=2, deltas=deltas),
 ]
 
@@ -23,7 +23,8 @@ if __name__ == "__main__":
     try:
         parser = parse()
         log_name:str = ""
-        assert all(hasattr(parser, attr) for attr in "np_level reuse_level prefix".split())
+        assert all(getattr(parser, s) for s in "np_level reuse_level prefix".split())
+        print("a")
         if parser.np_level == 1: log_name += "DNP"
         elif parser.np_level == 2: log_name += "GNP"
         if parser.reuse_level: log_name += ("_" if log_name else "") + f"M{parser.reuse_level}"
