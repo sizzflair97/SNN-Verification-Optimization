@@ -48,10 +48,7 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
                 spk_rec, mem_rec = net(data_spike.view(num_steps, -1))
 
                 # initialize the loss & sum over time
-                # loss_val = torch.zeros((1), dtype=torch.float)
                 loss_val = loss(spk_rec[:,None,:], targets)
-                # for step in range(num_steps):
-                #     loss_val += loss(mem_rec[-1][step], torch.tensor(iris_targets[number]))
 
                 # Gradient calculation + weight update
                 optimizer.zero_grad()
@@ -61,8 +58,6 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
                 # Store loss history for future plotting
                 loss_hist.append(loss_val.item())
 
-                # if counter % 20 == 0:
-                #     print(f"Epoch {epoch}, Iteration {iter_counter}")
                 pbar.desc = f"Epoch {epoch}, Iteration {iter_counter}, LogLoss {math.log(loss_hist[-1]):.3f}"
                 counter += 1
                 iter_counter += 1
@@ -75,15 +70,11 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
         info("Model loaded")
 
     acc = 0
-    # perm = np.random.permutation(len(iris_data))
     test_data, test_targets = torch.tensor(iris_data, dtype=torch.float), torch.tensor(iris_targets)
     for i, data in (pbar:=tqdm(enumerate(test_data))):
         spike_data:Tensor = spikegen.latency(data, num_steps=num_steps, normalize=True) # type: ignore
         spk_rec, mem_rec = net(spike_data.view(num_steps, -1))
-        # idx = np.argmax(spk_rec.sum(dim=0).detach().numpy())
-        # print(spk_rec)
         idx = torch.argmax(spk_rec, dim=0).argmin()
-        # print(idx, test_targets[i])
         pbar.desc = f"{idx}, {test_targets[i]}"
         if idx == test_targets[i]:
             acc += 1
@@ -120,6 +111,7 @@ def run_test(cfg:CFG):
     #Node eqns
     assign:List[BoolRef] = []
     node_eqn:List[BoolRef] = gen_node_eqns(weights, spike_indicators, potentials)
+    node_eqn += gen_latency_encoding_props(spike_indicators)
     if cfg.np_level == 1:
         node_eqn += gen_DNP(weights, spike_indicators)
     elif cfg.np_level == 2:
@@ -138,10 +130,7 @@ def run_test(cfg:CFG):
         def check_sample(sample_tuple):
             sample_no, sample_spike = sample_tuple
             label, control = forward_net(sample_spike.view(num_steps, -1), spike_indicators, assign+node_eqn+pot_init)
-            # spk_rec, mem_rec = net(sample_spike.view(num_steps, -1)) # epsilon 1~5
-            # label = int(spk_rec.sum(dim=0).argmax())
-            # prop = gen_delta_reuse(cfg, sample_spike, spike_indicators, potentials, delta, control)
-            prop = gen_delta_latency_reuse(cfg, sample_spike, spike_indicators, potentials, delta, control)
+            prop = gen_delta_latency_reuse(cfg, sample_spike, spike_indicators, delta)
             # Output property
             #tx = time.time()
             op = []
@@ -160,8 +149,8 @@ def run_test(cfg:CFG):
             tss = time.time()-tx
             info(f'Completed for delta = {delta}, sample = {sample_no} in {tss} sec as {res}')
             return tss, delta, res
-            
-        sample_spks = [spikegen.rate(torch.tensor(sample, dtype=torch.float), num_steps=num_steps) # type: ignore
+        
+        sample_spks = [spikegen.latency(torch.tensor(sample, dtype=torch.float), num_steps=num_steps, normalize=True) # type: ignore
                        for sample in samples]
         
         if mp:
@@ -169,7 +158,7 @@ def run_test(cfg:CFG):
                 tss_lst = pool.map(check_sample, enumerate(sample_spks))
             for tss, delta, res in tss_lst:
                 avt += tss
-                delta_v[delta] += 1 if res == "unsat" else 0
+                delta_v[delta] += 1 if str(res) == "unsat" else 0
             avt /= len(sample_spks)
         else:
             for sample_no, sample_spike in enumerate(sample_spks):

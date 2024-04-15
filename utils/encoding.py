@@ -11,10 +11,10 @@ import pdb
 
 def gen_s_indicator():
     spike_indicators:SType = {}
-    for t in range(num_steps):
+    for t in range(1, num_steps+1):
         for j, m in enumerate(layers):
             for i in range(m):
-                spike_indicators[(i, j, t+1)] = Bool(f'x_{i}_{j}_{t+1}')
+                spike_indicators[(i, j, t)] = Bool(f'x_{i}_{j}_{t+1}')
     return spike_indicators
 
 def gen_p_indicator():
@@ -43,6 +43,20 @@ def gen_initial_potential_term(potentials:PType):
         for i in range(m):
             pot_init.append(potentials[(i, j, 0)] == 0)
     return pot_init
+
+def gen_latency_encoding_props(spike_indicators:SType):
+    eqn:List[BoolRef] = []
+    for idx_node in range(layers[0]):
+        # for timestep in range(1, num_steps+1):
+        #     eqn.append(
+        #         Implies(spike_indicators[(idx_node, 0, timestep)],
+        #                 And([Not(spike_indicators[(idx_node, 0, other)])
+        #                     for other in [*range(1,timestep)]+[*range(timestep+1,num_steps+1)]]))) # type: ignore
+        eqn.append(
+            Sum([If(spike_indicators[(idx_node, 0, timestep)], 1, 0) for timestep in range(1, num_steps+1)]) == 1 # type: ignore
+        )
+    
+    return eqn
 
 def gen_DNP(weights:WType, spike_indicators:SType):
     node_eqn:List[BoolRef] = []
@@ -185,9 +199,7 @@ def gen_delta_reuse(cfg:CFG,
 def gen_delta_latency_reuse(cfg:CFG,
                     sample_spike:Tensor,
                     spike_indicators:SType,
-                    potentials:PType,
-                    delta:int,
-                    control:ModelRef):
+                    delta:int):
     sum_val:List[ArithRef] = []
     prop:List[BoolRef] = []
     assert len(sample_spike.shape) == 2
@@ -195,9 +207,9 @@ def gen_delta_latency_reuse(cfg:CFG,
         orig = spike_sequence.argmax().item()
         terms = []
         for timestep, spike in enumerate(spike_sequence, start=1):
-            terms.append(If(spike_indicators[(node_i, 0, timestep)], timestep-orig, -orig))
+            terms.append(If(spike_indicators[(node_i, 0, timestep)], timestep, 0))
         sum_val.append(
-            Abs(Sum(terms)) # type: ignore
+            Abs(Sum(terms) - orig) # type: ignore
         )
             
     prop.append(sum(sum_val) <= delta) # type: ignore
