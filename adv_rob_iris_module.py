@@ -28,7 +28,7 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
         net = Net()
         optimizer = torch.optim.Adam(net.parameters(), lr=5e-4, betas=(0.9, 0.999))
         # loss = nn.CrossEntropyLoss()
-        loss = SF.ce_temporal_loss('reciprocal') # type: ignore
+        loss = SF.mse_temporal_loss() # type: ignore
 
         # Outer training loop
         for epoch in range(num_epochs):
@@ -38,10 +38,10 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
             for number in (pbar:=tqdm(range(len(iris_targets)))):
                 data = torch.tensor(iris_data[number], dtype=torch.float)
                 #targets = torch.tensor([0 if i != iris_targets[number] else 1 for i in range(max(iris_targets)+1)],dtype=torch.float)
-                targets = torch.tensor(iris_targets[number])
+                targets = torch.tensor([iris_targets[number]])
 
                 # make spike trains
-                data_spike:Tensor = spikegen.latency(data, num_steps=num_steps, normalize=True, linear=True) # type: ignore
+                data_spike:Tensor = spikegen.latency(data, num_steps=num_steps, normalize=True) # type: ignore
 
                 # forward pass
                 net.train()
@@ -49,7 +49,7 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
 
                 # initialize the loss & sum over time
                 # loss_val = torch.zeros((1), dtype=torch.float)
-                loss_val = loss(spk_rec[:,None,:], targets[None])
+                loss_val = loss(spk_rec[:,None,:], targets)
                 # for step in range(num_steps):
                 #     loss_val += loss(mem_rec[-1][step], torch.tensor(iris_targets[number]))
 
@@ -77,15 +77,14 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
     acc = 0
     # perm = np.random.permutation(len(iris_data))
     test_data, test_targets = torch.tensor(iris_data, dtype=torch.float), torch.tensor(iris_targets)
-    for i, data in enumerate(test_data):
+    for i, data in (pbar:=tqdm(enumerate(test_data))):
         spike_data:Tensor = spikegen.latency(data, num_steps=num_steps, normalize=True) # type: ignore
         spk_rec, mem_rec = net(spike_data.view(num_steps, -1))
         # idx = np.argmax(spk_rec.sum(dim=0).detach().numpy())
         # print(spk_rec)
-        if torch.sum(spk_rec) == 0:
-            print("all-zero")
         idx = torch.argmax(spk_rec, dim=0).argmin()
-        print(idx, test_targets[i])
+        # print(idx, test_targets[i])
+        pbar.desc = f"{idx}, {test_targets[i]}"
         if idx == test_targets[i]:
             acc += 1
         else:
