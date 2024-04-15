@@ -1,3 +1,4 @@
+from math import floor, log
 from torch import Tensor
 from z3 import *
 from typing import Any, Dict, Literal, Tuple, List, DefaultDict, Union
@@ -45,23 +46,56 @@ def gen_initial_potential_term(potentials:PType):
 
 def gen_DNP(weights:WType, spike_indicators:SType):
     node_eqn:List[BoolRef] = []
-    for _in_layer, (_in_nnodes, _out_nnodes) in enumerate(zip(layers[:-1], layers[1:])):
-        for i in range(_out_nnodes):
-            node_eqn.append(
-                Implies(
-                    Sum([If(weights[(k, i, _in_layer)]>=0, weights[(k, i, _in_layer)], 0)
-                         for k in range(_in_nnodes)])
-                    < threshold * (1-beta),
-                    Not(Or([spike_indicators[(i, _in_layer+1, t)]
-                            for t in range(1, num_steps+1)]))))
+    total_dns = 0
+    dns = []
+    for in_layer, (n_in_nodes, n_out_nodes) in enumerate(zip(layers[:-1], layers[1:])):
+        prev_dns = dns # List to save dead neurons of prev. layer.
+        dns = [] # List to save dead neurons of current layer.
+        for i in range(n_out_nodes):
+            # do not calc neurons to get max_current in prev_dns, because there are only dead neurons.
+            S_max = sum(max(0, weights[(k, i, in_layer)]) for k in range(n_in_nodes) if (k, in_layer) not in prev_dns)
+            if S_max == 0 or 1-threshold*(1-beta)/(S_max) <= 0:
+                total_dns += 1
+                dns.append((i, in_layer+1)) # save dead neuron: (node_idx, layer_idx)
+                node_eqn.append(
+                    Not(Or([spike_indicators[(i, in_layer+1, t)]
+                            for t in range(1, num_steps+1)]))) # type: ignore
+                
+        
+            # node_eqn.append(
+            #     Implies(
+            #         Sum([If(weights[(k, i, in_layer)]>=0, weights[(k, i, in_layer)], 0)
+            #              for k in range(n_in_nodes)])
+            #         < threshold * (1-beta),
+            #         Not(Or([spike_indicators[(i, in_layer+1, t)]
+            #                 for t in range(1, num_steps+1)]))))
+    print(f"Total Dead Neurons: {total_dns}")
+    return node_eqn
+
+def gen_GNP(weights:WType, spike_indicators:SType):
+    node_eqn:List[BoolRef] = []
+    for in_layer, (n_in_nodes, n_out_nodes) in enumerate(zip(layers[:-1], layers[1:])):
+        for i in range(n_out_nodes):
+            S_max = sum(max(0, weights[(k, i, in_layer)]) for k in range(n_in_nodes))
+            score = 1-threshold*(1-beta)/(S_max)
+            if score <= 0:
+                node_eqn.append(
+                    Not(Or([spike_indicators[(i, in_layer+1, t)]
+                            for t in range(1, num_steps+1)]))) # type: ignore
+                continue
+            n_max = floor(log(score, beta))
+            for t in range(1, num_steps+1):
+                node_eqn.append(
+                    Implies(spike_indicators[(i, in_layer+1, t)],
+                            And([Not(spike_indicators[(i, in_layer+1, tp)])
+                                for tp in range(t+1, min(t+n_max, num_steps+1))]))
+                )
     return node_eqn
 
 def gen_node_eqns(weights:WType, spike_indicators:SType, potentials:PType):
     node_eqn:List[BoolRef] = []
     for t in range(1, num_steps+1):
-        for j, m in enumerate(layers):
-            if j == 0:
-                continue
+        for j, m in enumerate(layers[1:], start=1):
             for i in range(m):
                 dP2i_lst = [spike_indicators[(k, j-1, t)]*weights[(k, i, j-1)] for k in range(layers[j-1])]
                 S = sum(dP2i_lst) + beta*potentials[(i, j, t-1)] # type: ignore # epsilon_1
@@ -72,66 +106,6 @@ def gen_node_eqns(weights:WType, spike_indicators:SType, potentials:PType):
                         Implies(Not(reset),
                                 And(Not(spike_indicators[(i, j, t)]), potentials[(i, j, t)] == S)))) # type: ignore # epsilon_3 & epsilon_5
     return node_eqn
-
-
-# def gen_reuse(weights:WType, spike_indicators:SType, potentials:PType, sample_spike:Tensor,
-#               spk_rec:Tensor, mem_rec:Tensor, delta:int, reuse_level:Literal[0,1,2]=0):
-#     sum_val = []
-#     prop:List[BoolRef] = []
-#     reuse_flag = reuse_level != 0
-#     for timestep, spike_train in enumerate(sample_spike, start=1):
-#         #Variables to calculate the total perturbation.
-#         for i, spike in enumerate(spike_train.view(num_input)):
-#             if spike == 1:
-#                 sum_val.append(If(spike_indicators[(i, 0, timestep)], 0.0, 1.0))
-#             else:
-#                 sum_val.append(If(spike_indicators[(i, 0, timestep)], 1.0, 0.0))
-#             #Flip flag if there is any perturbation
-#             reuse_flag = And(
-#                 reuse_flag,
-#                 spike_indicators[(i, 0, timestep)]==spike.bool().item()
-#                 )
-        
-#         for j, m in enumerate(layers):
-#             if j == 0:
-#                 continue
-#             for i in range(m):
-#                 lst = [spike_indicators[(k, j-1, timestep)]*weights[(k, i, j-1)] for k in range(layers[j-1])]
-#                 S = sum(lst) + beta*potentials[(i, j, timestep-1)] # type: ignore # epsilon_1
-#                 if j != len(layers)-1:
-#                     prop.append(
-#                         And(
-#                             Implies(
-#                                 S >= 1.0,
-#                                 And(spike_indicators[(i, j, timestep)], potentials[(i, j, timestep)] == S - 1) # epsilon_2 & epsilon_4
-#                                 ),
-#                             Implies(
-#                                 S < 1.0,
-#                                 And(Not(spike_indicators[(i, j, timestep)]), potentials[(i, j, timestep)] == S) # epsilon_3 & epsilon_5
-#                                 )
-#                             ) # type: ignore
-#                         )
-#                     continue
-#                 prop.append(Implies(
-#                     reuse_flag, And(spike_indicators[(i, j, timestep)] == spk_rec[timestep-1, i].bool().item(),
-#                                     potentials[(i, j, timestep)] == mem_rec[timestep-1, i].item() if reuse_level>=2 else True)
-#                 ))
-#                 prop.append(Implies(
-#                     Not(reuse_flag), And(
-#                         Implies(
-#                             S >= 1.0,
-#                             And(spike_indicators[(i, j, timestep)], potentials[(i, j, timestep)] == S - 1) # epsilon_2 & epsilon_4
-#                             ),
-#                         Implies(
-#                             S < 1.0,
-#                             And(Not(spike_indicators[(i, j, timestep)]), potentials[(i, j, timestep)] == S) # epsilon_3 & epsilon_5
-#                             )
-#                         )) # type: ignore
-#                 )
-                    
-            
-#     prop.append(sum(sum_val) <= delta) # type: ignore
-#     return prop
 
 def argmax_left(s:Solver, x:List[ArithRef], ix:ArithRef, max_val:ArithRef):
     z3utils.maximum(s, max_val, x)
@@ -174,7 +148,7 @@ def gen_delta_reuse(cfg:CFG,
                     control:ModelRef):
     sum_val = []
     prop:List[BoolRef] = []
-    reuse_flag = cfg.reuse_level != 0
+    reuse_flag = True
     for timestep, spike_train in enumerate(sample_spike):
         #Variables to calculate the total perturbation.
         for i, spike in enumerate(spike_train.view(num_input)):
