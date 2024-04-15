@@ -60,8 +60,7 @@ def gen_DNP(weights:WType, spike_indicators:SType):
                 node_eqn.append(
                     Not(Or([spike_indicators[(i, in_layer+1, t)]
                             for t in range(1, num_steps+1)]))) # type: ignore
-                
-        
+            # Previous Implementation. Equal but more terms.
             # node_eqn.append(
             #     Implies(
             #         Sum([If(weights[(k, i, in_layer)]>=0, weights[(k, i, in_layer)], 0)
@@ -74,11 +73,16 @@ def gen_DNP(weights:WType, spike_indicators:SType):
 
 def gen_GNP(weights:WType, spike_indicators:SType):
     node_eqn:List[BoolRef] = []
+    total_dns = 0
+    dns = []
     for in_layer, (n_in_nodes, n_out_nodes) in enumerate(zip(layers[:-1], layers[1:])):
+        prev_dns = dns # List to save dead neurons of prev. layer.
+        dns = [] # List to save dead neurons of current layer.
         for i in range(n_out_nodes):
-            S_max = sum(max(0, weights[(k, i, in_layer)]) for k in range(n_in_nodes))
-            score = 1-threshold*(1-beta)/(S_max)
-            if score <= 0:
+            S_max = sum(max(0, weights[(k, i, in_layer)]) for k in range(n_in_nodes) if (k, in_layer) not in prev_dns)
+            if S_max == 0 or (score:=1-threshold*(1-beta)/(S_max)) <= 0:
+                total_dns += 1
+                dns.append((i, in_layer+1)) # save dead neuron: (node_idx, layer_idx)
                 node_eqn.append(
                     Not(Or([spike_indicators[(i, in_layer+1, t)]
                             for t in range(1, num_steps+1)]))) # type: ignore
@@ -174,6 +178,27 @@ def gen_delta_reuse(cfg:CFG,
             prop.append(Implies(
                 reuse_flag,
                 And(_reuse_targets)))
+            
+    prop.append(sum(sum_val) <= delta) # type: ignore
+    return prop
+
+def gen_delta_latency_reuse(cfg:CFG,
+                    sample_spike:Tensor,
+                    spike_indicators:SType,
+                    potentials:PType,
+                    delta:int,
+                    control:ModelRef):
+    sum_val:List[ArithRef] = []
+    prop:List[BoolRef] = []
+    assert len(sample_spike.shape) == 2
+    for node_i, spike_sequence in enumerate(sample_spike.T):
+        orig = spike_sequence.argmax().item()
+        terms = []
+        for timestep, spike in enumerate(spike_sequence, start=1):
+            terms.append(If(spike_indicators[(node_i, 0, timestep)], timestep-orig, -orig))
+        sum_val.append(
+            Abs(Sum(terms)) # type: ignore
+        )
             
     prop.append(sum(sum_val) <= delta) # type: ignore
     return prop

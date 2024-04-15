@@ -1,5 +1,5 @@
 # %%
-from multiprocessing import Pool
+from multiprocessing import Pipe, Pool
 import multiprocessing
 from tabnanny import check
 import functools, time, logging, json
@@ -67,8 +67,8 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
                 counter += 1
                 iter_counter += 1
         # print("Saving model.pth")
-        info("Saving model.pth")
-        torch.save(net, file_name)
+        # info("Saving model.pth")
+        # torch.save(net, file_name)
     else:
         net = torch.load(file_name)
         # print("Model loaded")
@@ -87,14 +87,11 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
         pbar.desc = f"{idx}, {test_targets[i]}"
         if idx == test_targets[i]:
             acc += 1
-        else:
-            pass
     info(f'Accuracy of the model : {acc}%\n')
     return net
 
-def run_test(cfg:CFG, log_name:Union[None, str]=None):
-    if log_name == None:
-        log_name = f"TEST_{strftime('%m%d%H%M', localtime())}_{cfg.log_name}.log"
+def run_test(cfg:CFG):
+    log_name = f"{strftime('%m%d%H%M', localtime())}_{cfg.log_name}.log"
     logging.basicConfig(filename="log/" + log_name, level=logging.INFO)
     info(cfg)
 
@@ -143,7 +140,8 @@ def run_test(cfg:CFG, log_name:Union[None, str]=None):
             label, control = forward_net(sample_spike.view(num_steps, -1), spike_indicators, assign+node_eqn+pot_init)
             # spk_rec, mem_rec = net(sample_spike.view(num_steps, -1)) # epsilon 1~5
             # label = int(spk_rec.sum(dim=0).argmax())
-            prop = gen_delta_reuse(cfg, sample_spike, spike_indicators, potentials, delta, control)
+            # prop = gen_delta_reuse(cfg, sample_spike, spike_indicators, potentials, delta, control)
+            prop = gen_delta_latency_reuse(cfg, sample_spike, spike_indicators, potentials, delta, control)
             # Output property
             #tx = time.time()
             op = []
@@ -153,23 +151,15 @@ def run_test(cfg:CFG, log_name:Union[None, str]=None):
                     op.append(
                         Not(intend_sum > sum([2 * spike_indicators[(t, 2, timestep + 1)] for timestep in range(num_steps)]))
                     )
-            #print(f'Output Property Done in {time.time() - tx} sec')
             
             S = Solver()
             S.add(assign+node_eqn+pot_init+prop+op)
             tx = time.time()
             res = S.check()
-            if str(res) == 'unsat':
-                delta_v[delta] += 1
-            # else:
-            #     model = S.model()
-            #     dump(model, spike_indicators, potentials)
-            #     pdb.set_trace()
             del S
             tss = time.time()-tx
-            # print(f'Completed for delta = {delta}, sample = {sample_no} in {tss} sec as {res}')
             info(f'Completed for delta = {delta}, sample = {sample_no} in {tss} sec as {res}')
-            return tss
+            return tss, delta, res
             
         sample_spks = [spikegen.rate(torch.tensor(sample, dtype=torch.float), num_steps=num_steps) # type: ignore
                        for sample in samples]
@@ -177,45 +167,15 @@ def run_test(cfg:CFG, log_name:Union[None, str]=None):
         if mp:
             with Pool() as pool:
                 tss_lst = pool.map(check_sample, enumerate(sample_spks))
-            avt = sum(tss_lst)/len(sample_spks)
-        
+            for tss, delta, res in tss_lst:
+                avt += tss
+                delta_v[delta] += 1 if res == "unsat" else 0
+            avt /= len(sample_spks)
         else:
             for sample_no, sample_spike in enumerate(sample_spks):
-                tss = check_sample((sample_no, sample_spike))
-            
-            # sample_spike = spikegen.rate(torch.tensor(sample, dtype=torch.float), num_steps=num_steps) # type: ignore
-            
-            # label, control = forward_net(sample_spike.view(num_steps, -1), spike_indicators, assign+node_eqn+pot_init)
-            # # spk_rec, mem_rec = net(sample_spike.view(num_steps, -1)) # epsilon 1~5
-            # # label = int(spk_rec.sum(dim=0).argmax())
-            # prop = gen_delta_reuse(cfg, sample_spike, spike_indicators, potentials, delta, control)
-            # # Output property
-            # #tx = time.time()
-            # op = []
-            # intend_sum = sum([2 * spike_indicators[(control[label].as_long(), 2, timestep + 1)] for timestep in range(num_steps)]) # type: ignore
-            # for t in range(num_output):
-            #     if t != op:
-            #         op.append(
-            #             Not(intend_sum > sum([2 * spike_indicators[(t, 2, timestep + 1)] for timestep in range(num_steps)]))
-            #         )
-            # #print(f'Output Property Done in {time.time() - tx} sec')
-            
-            # S = Solver()
-            # S.add(assign+node_eqn+pot_init+prop+op)
-            # tx = time.time()
-            # res = S.check()
-            # if str(res) == 'unsat':
-            #     delta_v[delta] += 1
-            # # else:
-            # #     model = S.model()
-            # #     dump(model, spike_indicators, potentials)
-            # #     pdb.set_trace()
-            # del S
-            # tss = time.time()-tx
-            # # print(f'Completed for delta = {delta}, sample = {sample_no} in {tss} sec as {res}')
-            # info(f'Completed for delta = {delta}, sample = {sample_no} in {tss} sec as {res}')
+                tss, delta, res = check_sample((sample_no, sample_spike))
                 avt = (avt*sample_no + tss)/(sample_no+1)
-        # print(f'Completed for delta = {delta} with {delta_v[delta]} in avg time {avt} sec')
+                delta_v[delta] += 1 if res == "unsat" else 0
         info(f'Completed for delta = {delta} with {delta_v[delta]} in avg time {avt} sec')
         del check_sample
 
