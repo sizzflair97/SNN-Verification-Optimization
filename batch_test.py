@@ -34,7 +34,7 @@ if __name__ == "__main__":
                      np_level=parser.np_level,
                      reuse_level=parser.reuse_level,
                      seed=parser.seed,
-                     deltas=tuple(range(1, parser.delta_max+1))))
+                     deltas=tuple(range(0, parser.delta_max+1))))
     except AssertionError as e:
         for cfg in cfgs:
             run_test(cfg)

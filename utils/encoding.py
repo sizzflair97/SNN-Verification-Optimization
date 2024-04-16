@@ -1,4 +1,5 @@
 from math import floor, log
+import uuid
 from torch import Tensor
 from z3 import *
 from typing import Any, Dict, Literal, Tuple, List, DefaultDict, Union
@@ -53,9 +54,8 @@ def gen_latency_encoding_props(spike_indicators:SType):
         #                 And([Not(spike_indicators[(idx_node, 0, other)])
         #                     for other in [*range(1,timestep)]+[*range(timestep+1,num_steps+1)]]))) # type: ignore
         eqn.append(
-            Sum([If(spike_indicators[(idx_node, 0, timestep)], 1, 0) for timestep in range(1, num_steps+1)]) == 1 # type: ignore
+            Sum([1*spike_indicators[(idx_node, 0, timestep)] for timestep in range(1, num_steps+1)]) == 1 # type: ignore
         )
-    
     return eqn
 
 def gen_DNP(weights:WType, spike_indicators:SType):
@@ -134,7 +134,43 @@ def argmax_left(s:Solver, x:List[ArithRef], ix:ArithRef, max_val:ArithRef):
             Implies(And(_ne_left,
                         x[_i] == max_val),
                     _i==ix))
+
+def node_first_spike_time(x:List[BoolRef]):
+    fst = Int(f"Fst_{uuid.uuid4().int}")
+    eqn:List[BoolRef] = []
+    flags:List[BoolRef] = []
+    flag = False
+    idx = 0
+    while idx < len(x):
+        prev_flag = flag
+        flag = Or(flag,(x[idx]==True)) # flip flag if there is spike.
+        flags.append(flag) # type: ignore
+        eqn.append(Implies(prev_flag!=flag, fst==idx)) # flipped flag means first spike is in idx.
+    eqn.append(Implies(Not(flag), fst==num_steps+1)) # first spike time is num_steps+1 if there is no spike in x.
+    return fst, eqn
     
+def first_spike_time(solver:Solver, spike_indicators:SType):
+    #Save output spikes
+    fsts:List[ArithRef] = []
+    eqn:List[BoolRef] = []
+    for i in range(layers[-1]):
+        fst_i, eqn_i = node_first_spike_time([spike_indicators[(i, len(layers)-1, timestep)] for timestep in range(1, num_steps+1)])
+        fsts.append(fst_i)
+        eqn += eqn_i
+    val_id = uuid.uuid4().int
+    
+    z3utils.argmax(solver, fsts, time:=Int(f'FirstSpikeTime_{val_id}'), model_out_max:=Int(f"OutMax_{val_id}"))
+    return time, model_out_max
+
+def gen_latency_output_validity(solver:Solver, spike_indicators:SType):
+    eqn:List[BoolRef] = []
+    for idx_node in range(layers[-1]):
+        timeseries_of_node = [spike_indicators[(idx_node, 0, timestep)] for timestep in range(1, num_steps+1)]
+        
+        eqn.append(
+            Sum([1*spike_indicators[(idx_node, 0, timestep)] for timestep in range(1, num_steps+1)]) == 1 # type: ignore
+        )
+    return eqn
 
 def forward_net(sample_spike:torch.Tensor,
                 spike_indicators:SType,
@@ -144,19 +180,12 @@ def forward_net(sample_spike:torch.Tensor,
     solver.add(encodings)
     
     #make spike input encoding
-    spk_outs:List[ArithRef] = [0] * layers[-1] # type: ignore
-    for _timestep, _spike_train in enumerate(sample_spike):
-        for _i, _spike in enumerate(_spike_train.view(num_input)):
-            solver.add(spike_indicators[(_i, 0, _timestep+1)]
-                       == bool(_spike.item()))
-        for _i in range(layers[-1]):
-            spk_outs[_i] += If(spike_indicators[(_i, len(layers)-1, _timestep+1)], 1, 0)
-    
-    #add argmax encoding
-    max_label_spk:ArithRef = Int('Max_Label_Spike')
-    argmax_left(solver, spk_outs, label:=Int('Label'), max_label_spk)
-    assert str(solver.check()) == "sat", "Solver couldn't find any model in snn forward."
-    return label, solver.model()
+    for timestep, spike_train in enumerate(sample_spike, start=1):
+        for i, spike in enumerate(spike_train.view(num_input)):
+            solver.add(spike_indicators[(i, 0, timestep)]
+                       == bool(spike.item()))
+    label, model_out_max = first_spike_time(solver, spike_indicators)
+    return label, solver.check(), solver.model()
 
 def gen_delta_reuse(cfg:CFG,
                     sample_spike:Tensor,

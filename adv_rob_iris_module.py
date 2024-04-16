@@ -21,14 +21,15 @@ def info(msg:Any):
 
 def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
     loss_hist = []
-    test_loss_hist = []
-    counter = 0
     
     if train:
         net = Net()
         optimizer = torch.optim.Adam(net.parameters(), lr=5e-4, betas=(0.9, 0.999))
         # loss = nn.CrossEntropyLoss()
-        loss = SF.mse_temporal_loss() # type: ignore
+        # loss = SF.mse_temporal_loss() # type: ignore
+        # encoding_func = spikegen.latency
+        loss = SF.mse_count_loss(correct_rate=.8, incorrect_rate=.2) # type: ignore
+        encoding_func = spikegen.rate
 
         # Outer training loop
         for epoch in range(num_epochs):
@@ -41,14 +42,18 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
                 targets = torch.tensor([iris_targets[number]])
 
                 # make spike trains
-                data_spike:Tensor = spikegen.latency(data, num_steps=num_steps, normalize=True) # type: ignore
+                # data_spike:Tensor = encoding_func(data, num_steps=num_steps, normalize=True) # type: ignore # for latency encoding
+                data_spike:Tensor = encoding_func(data, num_steps=num_steps) # type: ignore # for rate encoding
 
                 # forward pass
                 net.train()
                 spk_rec, mem_rec = net(data_spike.view(num_steps, -1))
 
                 # initialize the loss & sum over time
-                loss_val = loss(spk_rec[:,None,:], targets)
+                # loss_val = loss(spk_rec[:,None,:], targets)
+                loss_val = torch.zeros((1), dtype=torch.float)
+                for step in range(num_steps):
+                    loss_val += loss(spk_rec[step], targets)
 
                 # Gradient calculation + weight update
                 optimizer.zero_grad()
@@ -58,8 +63,7 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
                 # Store loss history for future plotting
                 loss_hist.append(loss_val.item())
 
-                pbar.desc = f"Epoch {epoch}, Iteration {iter_counter}, LogLoss {math.log(loss_hist[-1]):.3f}"
-                counter += 1
+                pbar.desc = f"Epoch {epoch}, Iteration {iter_counter}, LogLoss {math.log(loss_hist[-1]):.3f}, MeanSpk {net.mean_spks}"
                 iter_counter += 1
         # print("Saving model.pth")
         # info("Saving model.pth")
@@ -72,13 +76,14 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
     acc = 0
     test_data, test_targets = torch.tensor(iris_data, dtype=torch.float), torch.tensor(iris_targets)
     for i, data in (pbar:=tqdm(enumerate(test_data))):
-        spike_data:Tensor = spikegen.latency(data, num_steps=num_steps, normalize=True) # type: ignore
+        # spike_data:Tensor = encoding_func(data, num_steps=num_steps, normalize=True) # type: ignore
+        spike_data:Tensor = encoding_func(data, num_steps=num_steps) # type: ignore
         spk_rec, mem_rec = net(spike_data.view(num_steps, -1))
         idx = torch.argmax(spk_rec, dim=0).argmin()
         pbar.desc = f"{idx}, {test_targets[i]}"
         if idx == test_targets[i]:
             acc += 1
-    info(f'Accuracy of the model : {acc}%\n')
+    info(f'Accuracy of the model : {100*acc/len(test_data):.2f}%\n')
     return net
 
 def run_test(cfg:CFG):
@@ -121,7 +126,6 @@ def run_test(cfg:CFG):
     samples = iris_data[np.random.choice(range(len(iris_data)), cfg.num_samples)] # type: ignore
     info(samples)
 
-
     delta_v = {d: 0 for d in cfg.deltas}
     for delta in cfg.deltas:
         avt = 0
@@ -129,19 +133,25 @@ def run_test(cfg:CFG):
         global check_sample
         def check_sample(sample_tuple):
             sample_no, sample_spike = sample_tuple
-            label, control = forward_net(sample_spike.view(num_steps, -1), spike_indicators, assign+node_eqn+pot_init)
+            label_var, res, control = forward_net(sample_spike.view(num_steps, -1), spike_indicators, assign+node_eqn+pot_init)
+            if str(res) == 'sat':
+                return -1, delta, res
             prop = gen_delta_latency_reuse(cfg, sample_spike, spike_indicators, delta)
             # Output property
             #tx = time.time()
             op = []
-            intend_sum = sum([2 * spike_indicators[(control[label].as_long(), 2, timestep + 1)] for timestep in range(num_steps)]) # type: ignore
-            for t in range(num_output):
-                if t != op:
-                    op.append(
-                        Not(intend_sum > sum([2 * spike_indicators[(t, 2, timestep + 1)] for timestep in range(num_steps)]))
-                    )
+            label = control[label_var].as_long() # type: ignore
             
             S = Solver()
+            pred, _ = first_spike_time(S, spike_indicators)
+            op.append(label == pred)
+            # intend_sum = sum([2 * spike_indicators[(label, 2, timestep)] for timestep in range(1, num_steps+1)])
+            # for t in range(num_output):
+            #     if t != label:
+            #         op.append(
+            #             Not(intend_sum > sum([2 * spike_indicators[(t, 2, timestep)] for timestep in range(1, num_steps+1)]))
+            #         )
+            
             S.add(assign+node_eqn+pot_init+prop+op)
             tx = time.time()
             res = S.check()
