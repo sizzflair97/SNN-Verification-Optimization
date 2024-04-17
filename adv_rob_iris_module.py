@@ -21,15 +21,19 @@ def info(msg:Any):
 
 def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
     loss_hist = []
+    seq = np.random.permutation(len(iris_targets))
+    iris_data = iris_data[seq]
+    iris_targets = iris_targets[seq]
     
     if train:
         net = Net()
         optimizer = torch.optim.Adam(net.parameters(), lr=2e-3, betas=(0.9, 0.999))
         # loss = nn.CrossEntropyLoss()
-        # loss = SF.mse_temporal_loss() # type: ignore
-        # encoding_func = spikegen.latency
-        loss = SF.mse_temporal_loss() # type: ignore
+        loss = SF.ce_temporal_loss() # type: ignore
         encoding_func = spikegen.latency
+        # loss = SF.mse_temporal_loss(tolerance=num_steps//2) # type: ignore
+        # loss = SF.mse_count_loss(correct_rate=.8, incorrect_rate=.2)
+        # encoding_func = spikegen.rate
 
         # Outer training loop
         for epoch in range(num_epochs):
@@ -38,7 +42,6 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
             # Minibatch training loop
             for number in (pbar:=tqdm(range(len(iris_targets)))):
                 data = torch.tensor(iris_data[number], dtype=torch.float)
-                #targets = torch.tensor([0 if i != iris_targets[number] else 1 for i in range(max(iris_targets)+1)],dtype=torch.float)
                 targets = torch.tensor(iris_targets[number], dtype=torch.long)
 
                 # make spike trains
@@ -50,10 +53,11 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
                 spk_rec, mem_rec = net(data_spike.view(num_steps, -1))
 
                 # initialize the loss & sum over time
+                # loss_val = loss(spk_rec[:,None,:], targets[None])
                 loss_val = loss(spk_rec[:,None,:], targets[None])
                 # loss_val = torch.zeros((1), dtype=torch.float)
                 # for step in range(num_steps):
-                #     loss_val += loss(mem_rec[-1][step], targets)
+                #     loss_val += loss(mem_rec[-1][step], targets[None])
 
                 # Gradient calculation + weight update
                 optimizer.zero_grad()
@@ -63,7 +67,11 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
                 # Store loss history for future plotting
                 loss_hist.append(loss_val.item())
 
-                pbar.desc = f"Epoch {epoch}, Iteration {iter_counter}, LogLoss {math.log(loss_hist[-1]):.3f}, MeanSpk {net.mean_spks:.2f}"
+                try:
+                    pbar.desc = (f"Epoch {epoch}, Iteration {iter_counter} "+
+                                 f"LogLoss {-float('inf') if loss_hist[-1]==0 else math.log(loss_hist[-1]):.3f}, MeanSpk {net.mean_spks:.2f}")
+                except ValueError:
+                    print(loss_hist[-1])
                 iter_counter += 1
         # print("Saving model.pth")
         # info("Saving model.pth")
@@ -81,9 +89,9 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
             spike_data:Tensor = encoding_func(data, num_steps=num_steps, normalize=True) # type: ignore
             # spike_data:Tensor = encoding_func(data, num_steps=num_steps) # type: ignore
             spk_rec, mem_rec = net(spike_data.view(num_steps, -1))
-            # idx = torch.argmax(spk_rec, dim=0).argmin()
+            # idx = torch.sum(spk_rec, dim=0).argmax() # rate encoding prediction
             fs_hat = fs(spk_rec[:,None,:])
-            idx = fs_hat.reshape(-1).argmin()
+            idx = fs_hat.reshape(-1).argmin() # latency encoding prediction
             print(fs_hat, idx, test_targets[i])
             pbar.desc = f"{idx}, {test_targets[i]}"
             if idx == test_targets[i]:

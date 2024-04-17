@@ -25,7 +25,7 @@ class IrisNet(nn.Module):
         mem1_rec = []
         mem2_rec = []
 
-        total_spks = x.sum()
+        total_spks = int(x.sum())
         for step in range(num_steps):
             cur1 = self.fc1(x[step])
             spk1, mem1 = self.lif1(cur1, mem1)
@@ -34,7 +34,7 @@ class IrisNet(nn.Module):
             spk2_rec.append(spk2)
             mem1_rec.append(mem1)
             mem2_rec.append(mem2)
-            total_spks += spk1.sum() + spk2.sum()
+            total_spks += int(spk1.sum() + spk2.sum())
 
         mem_return = torch.stack(mem1_rec, dim=0), torch.stack(mem2_rec, dim=0)
         self.mean_spks = (total_spks if self.mean_spks==0 else 0.95*self.mean_spks + 0.05*total_spks)
