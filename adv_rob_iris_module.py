@@ -24,12 +24,12 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
     
     if train:
         net = Net()
-        optimizer = torch.optim.Adam(net.parameters(), lr=5e-4, betas=(0.9, 0.999))
+        optimizer = torch.optim.Adam(net.parameters(), lr=2e-3, betas=(0.9, 0.999))
         # loss = nn.CrossEntropyLoss()
         # loss = SF.mse_temporal_loss() # type: ignore
         # encoding_func = spikegen.latency
-        loss = SF.mse_count_loss(correct_rate=.8, incorrect_rate=.2) # type: ignore
-        encoding_func = spikegen.rate
+        loss = SF.mse_temporal_loss() # type: ignore
+        encoding_func = spikegen.latency
 
         # Outer training loop
         for epoch in range(num_epochs):
@@ -39,21 +39,21 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
             for number in (pbar:=tqdm(range(len(iris_targets)))):
                 data = torch.tensor(iris_data[number], dtype=torch.float)
                 #targets = torch.tensor([0 if i != iris_targets[number] else 1 for i in range(max(iris_targets)+1)],dtype=torch.float)
-                targets = torch.tensor([iris_targets[number]])
+                targets = torch.tensor(iris_targets[number], dtype=torch.long)
 
                 # make spike trains
-                # data_spike:Tensor = encoding_func(data, num_steps=num_steps, normalize=True) # type: ignore # for latency encoding
-                data_spike:Tensor = encoding_func(data, num_steps=num_steps) # type: ignore # for rate encoding
+                data_spike:Tensor = encoding_func(data, num_steps=num_steps, normalize=True) # type: ignore # for latency encoding
+                # data_spike = encoding_func(data, num_steps=num_steps) # type: ignore # for rate encoding
 
                 # forward pass
                 net.train()
                 spk_rec, mem_rec = net(data_spike.view(num_steps, -1))
 
                 # initialize the loss & sum over time
-                # loss_val = loss(spk_rec[:,None,:], targets)
-                loss_val = torch.zeros((1), dtype=torch.float)
-                for step in range(num_steps):
-                    loss_val += loss(spk_rec[step], targets)
+                loss_val = loss(spk_rec[:,None,:], targets[None])
+                # loss_val = torch.zeros((1), dtype=torch.float)
+                # for step in range(num_steps):
+                #     loss_val += loss(mem_rec[-1][step], targets)
 
                 # Gradient calculation + weight update
                 optimizer.zero_grad()
@@ -63,7 +63,7 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
                 # Store loss history for future plotting
                 loss_hist.append(loss_val.item())
 
-                pbar.desc = f"Epoch {epoch}, Iteration {iter_counter}, LogLoss {math.log(loss_hist[-1]):.3f}, MeanSpk {net.mean_spks}"
+                pbar.desc = f"Epoch {epoch}, Iteration {iter_counter}, LogLoss {math.log(loss_hist[-1]):.3f}, MeanSpk {net.mean_spks:.2f}"
                 iter_counter += 1
         # print("Saving model.pth")
         # info("Saving model.pth")
@@ -75,15 +75,20 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
 
     acc = 0
     test_data, test_targets = torch.tensor(iris_data, dtype=torch.float), torch.tensor(iris_targets)
-    for i, data in (pbar:=tqdm(enumerate(test_data))):
-        # spike_data:Tensor = encoding_func(data, num_steps=num_steps, normalize=True) # type: ignore
-        spike_data:Tensor = encoding_func(data, num_steps=num_steps) # type: ignore
-        spk_rec, mem_rec = net(spike_data.view(num_steps, -1))
-        idx = torch.argmax(spk_rec, dim=0).argmin()
-        pbar.desc = f"{idx}, {test_targets[i]}"
-        if idx == test_targets[i]:
-            acc += 1
-    info(f'Accuracy of the model : {100*acc/len(test_data):.2f}%\n')
+    with torch.no_grad():
+        fs = SF.SpikeTime.FirstSpike.apply
+        for i, data in (pbar:=tqdm(enumerate(test_data))):
+            spike_data:Tensor = encoding_func(data, num_steps=num_steps, normalize=True) # type: ignore
+            # spike_data:Tensor = encoding_func(data, num_steps=num_steps) # type: ignore
+            spk_rec, mem_rec = net(spike_data.view(num_steps, -1))
+            # idx = torch.argmax(spk_rec, dim=0).argmin()
+            fs_hat = fs(spk_rec[:,None,:])
+            idx = fs_hat.reshape(-1).argmin()
+            print(fs_hat, idx, test_targets[i])
+            pbar.desc = f"{idx}, {test_targets[i]}"
+            if idx == test_targets[i]:
+                acc += 1
+        info(f'Accuracy of the model : {100*acc/len(test_data):.2f}%\n')
     return net
 
 def run_test(cfg:CFG):

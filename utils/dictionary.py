@@ -4,13 +4,13 @@ import torch
 
 #Model default params
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-mp = True #
+mp = False #
 shuffle = True # 
 train = True # 
-num_epochs = 1 # 1 default
+num_epochs = 5 # 1 default
 file_name = 'model_iris.pth'
 num_input = 4
-num_hidden = 64 # 5 default
+num_hidden = 16 # 5 default
 # num_hidden_2 = 5
 num_output = 3
 layers = [num_input, num_hidden, num_output]
