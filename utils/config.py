@@ -3,7 +3,7 @@ from typing import List, Literal, Tuple
 
 @dataclass
 class CFG:
-    log_name:str = "M2"
+    log_name:str = ""
     np_level:int = 0
     reuse_level:Literal[0,1,2] = 1
     seed:int = 42

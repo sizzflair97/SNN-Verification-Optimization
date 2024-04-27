@@ -36,7 +36,7 @@ def gen_w_indicator(weights_list:List[Tensor]):
                 weights[(i, j, l)] = w[j][i].item()
     return weights
 
-def gen_initial_potential_term(potentials:PType):
+def gen_initial_potential_terms(potentials:PType):
     pot_init:List[Union[BoolRef, Any]] = []
     for j, m in enumerate(layers):
         if j == 0:
@@ -44,19 +44,6 @@ def gen_initial_potential_term(potentials:PType):
         for i in range(m):
             pot_init.append(potentials[(i, j, 0)] == 0)
     return pot_init
-
-def gen_latency_encoding_props(spike_indicators:SType):
-    eqn:List[BoolRef] = []
-    for idx_node in range(layers[0]):
-        # for timestep in range(1, num_steps+1):
-        #     eqn.append(
-        #         Implies(spike_indicators[(idx_node, 0, timestep)],
-        #                 And([Not(spike_indicators[(idx_node, 0, other)])
-        #                     for other in [*range(1,timestep)]+[*range(timestep+1,num_steps+1)]]))) # type: ignore
-        eqn.append(
-            Sum([1*spike_indicators[(idx_node, 0, timestep)] for timestep in range(1, num_steps+1)]) == 1 # type: ignore
-        )
-    return eqn
 
 def gen_DNP(weights:WType, spike_indicators:SType):
     node_eqn:List[BoolRef] = []
@@ -74,7 +61,7 @@ def gen_DNP(weights:WType, spike_indicators:SType):
                 node_eqn.append(
                     Not(Or([spike_indicators[(i, in_layer+1, t)]
                             for t in range(1, num_steps+1)]))) # type: ignore
-            # Previous Implementation. Equal but more terms.
+            # Previous Implementation. Equal but with more terms.
             # node_eqn.append(
             #     Implies(
             #         Sum([If(weights[(k, i, in_layer)]>=0, weights[(k, i, in_layer)], 0)
@@ -125,67 +112,45 @@ def gen_node_eqns(weights:WType, spike_indicators:SType, potentials:PType):
                                 And(Not(spike_indicators[(i, j, t)]), potentials[(i, j, t)] == S)))) # type: ignore # epsilon_3 & epsilon_5
     return node_eqn
 
-def argmax_left(s:Solver, x:List[ArithRef], ix:ArithRef, max_val:ArithRef):
-    z3utils.maximum(s, max_val, x)
-    n = len(x)
-    for _i in range(n):
-        _ne_left = And([max_val != _l for _l in x[:_i]])
-        s.add(
+def maximum(v, x) -> List[BoolRef]:
+    eqns:List[BoolRef] = [Or([v == x[i] for i in range(len(x))])] # type: ignore
+    for i in range(len(x)):
+        eqns.append(v >= x[i]) # and it's the greatest
+    return eqns
+
+def argmax_left(vector:List[ArithRef], max_index:ArithRef, max_val:ArithRef) -> List[BoolRef]:
+    eqns = maximum(max_val, vector)
+    n = len(vector)
+    for i in range(n):
+        _ne_left = And([max_val != _l for _l in vector[:i]])
+        eqns.append(
             Implies(And(_ne_left,
-                        x[_i] == max_val),
-                    _i==ix))
-
-def node_first_spike_time(x:List[BoolRef]):
-    fst = Int(f"Fst_{uuid.uuid4().int}")
-    eqn:List[BoolRef] = []
-    flags:List[BoolRef] = []
-    flag = False
-    idx = 0
-    while idx < len(x):
-        prev_flag = flag
-        flag = Or(flag,(x[idx]==True)) # flip flag if there is spike.
-        flags.append(flag) # type: ignore
-        eqn.append(Implies(prev_flag!=flag, fst==idx)) # flipped flag means first spike is in idx.
-    eqn.append(Implies(Not(flag), fst==num_steps+1)) # first spike time is num_steps+1 if there is no spike in x.
-    return fst, eqn
-    
-def first_spike_time(solver:Solver, spike_indicators:SType):
-    #Save output spikes
-    fsts:List[ArithRef] = []
-    eqn:List[BoolRef] = []
-    for i in range(layers[-1]):
-        fst_i, eqn_i = node_first_spike_time([spike_indicators[(i, len(layers)-1, timestep)] for timestep in range(1, num_steps+1)])
-        fsts.append(fst_i)
-        eqn += eqn_i
-    val_id = uuid.uuid4().int
-    
-    z3utils.argmax(solver, fsts, time:=Int(f'FirstSpikeTime_{val_id}'), model_out_max:=Int(f"OutMax_{val_id}"))
-    return time, model_out_max
-
-def gen_latency_output_validity(solver:Solver, spike_indicators:SType):
-    eqn:List[BoolRef] = []
-    for idx_node in range(layers[-1]):
-        timeseries_of_node = [spike_indicators[(idx_node, 0, timestep)] for timestep in range(1, num_steps+1)]
-        
-        eqn.append(
-            Sum([1*spike_indicators[(idx_node, 0, timestep)] for timestep in range(1, num_steps+1)]) == 1 # type: ignore
-        )
-    return eqn
+                        vector[i] == max_val),
+                    i==max_index))
+    return eqns
 
 def forward_net(sample_spike:torch.Tensor,
                 spike_indicators:SType,
-                encodings:List[BoolRef]):
+                encodings:List[BoolRef]) -> \
+                    Tuple[Literal["sat", "unsat", "unknown"], ArithRef, ModelRef]:
     #solver preprocess
     solver = Solver()
     solver.add(encodings)
     
     #make spike input encoding
-    for timestep, spike_train in enumerate(sample_spike, start=1):
-        for i, spike in enumerate(spike_train.view(num_input)):
-            solver.add(spike_indicators[(i, 0, timestep)]
-                       == bool(spike.item()))
-    label, model_out_max = first_spike_time(solver, spike_indicators)
-    return label, solver.check(), solver.model()
+    spk_outs:List[ArithRef] = [0] * layers[-1] # type: ignore
+    for _timestep, _spike_train in enumerate(sample_spike):
+        for _i, _spike in enumerate(_spike_train.view(num_input)):
+            solver.add(spike_indicators[(_i, 0, _timestep+1)]
+                       == bool(_spike.item()))
+        for _i in range(layers[-1]):
+            spk_outs[_i] += If(spike_indicators[(_i, len(layers)-1, _timestep+1)], 1, 0)
+    
+    #add argmax encoding
+    max_label_spk = Int('Max_Label_Spike')
+    label = Int('Label')
+    solver.add(argmax_left(spk_outs, label, max_label_spk))
+    return str(solver.check()), label, solver.model() # type: ignore
 
 def gen_delta_reuse(cfg:CFG,
                     sample_spike:Tensor,
@@ -193,13 +158,13 @@ def gen_delta_reuse(cfg:CFG,
                     potentials:PType,
                     delta:int,
                     control:ModelRef):
-    sum_val = []
+    delta_vector = []
     prop:List[BoolRef] = []
     reuse_flag = True
     for timestep, spike_train in enumerate(sample_spike):
         #Variables to calculate the total perturbation.
         for i, spike in enumerate(spike_train.view(num_input)):
-            sum_val.append(If(spike_indicators[(i, 0, timestep + 1)] == bool(spike.item()), 0.0, 1.0))
+            delta_vector.append(If(spike_indicators[(i, 0, timestep + 1)] == bool(spike.item()), 0.0, 1.0))
             #Flip flag if there is any perturbation
             reuse_flag = And(reuse_flag,
                              spike_indicators[(i, 0, timestep + 1)] == spike.bool().item())
@@ -222,24 +187,5 @@ def gen_delta_reuse(cfg:CFG,
                 reuse_flag,
                 And(_reuse_targets)))
             
-    prop.append(sum(sum_val) <= delta) # type: ignore
-    return prop
-
-def gen_delta_latency_reuse(cfg:CFG,
-                    sample_spike:Tensor,
-                    spike_indicators:SType,
-                    delta:int):
-    sum_val:List[ArithRef] = []
-    prop:List[BoolRef] = []
-    assert len(sample_spike.shape) == 2
-    for node_i, spike_sequence in enumerate(sample_spike.T):
-        orig = spike_sequence.argmax().item()
-        terms = []
-        for timestep, spike in enumerate(spike_sequence, start=1):
-            terms.append(If(spike_indicators[(node_i, 0, timestep)], timestep, 0))
-        sum_val.append(
-            Abs(Sum(terms) - orig) # type: ignore
-        )
-            
-    prop.append(sum(sum_val) <= delta) # type: ignore
+    prop.append(sum(delta_vector) <= delta) # type: ignore
     return prop

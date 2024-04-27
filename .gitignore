@@ -6,3 +6,4 @@ Models
 model_iris.pth
 .vs*
 *__pycache__*
+*.pyc

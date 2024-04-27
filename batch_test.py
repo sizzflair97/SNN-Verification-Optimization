@@ -1,14 +1,12 @@
 from utils import *
 from adv_rob_iris_module import run_test
 from numpy import arange
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 
 deltas = (1,2,3)
 cfgs = [
-    # CFG("Control", np_level=0, deltas=deltas),
     CFG("Manual_Control", np_level=0, deltas=deltas),
     CFG("Manual_DNP", np_level=1, deltas=deltas),
-    # CFG("GNP", np_level=2, deltas=deltas),
 ]
 
 def parse():
@@ -20,21 +18,28 @@ def parse():
     parser.add_argument("--delta_max", dest="delta_max", type=int, default=3)
     return parser.parse_args()
 
+def prepare_log_name(parser:Namespace) -> str:
+    words = []
+    
+    if parser.prefix: words.append(parser.prefix)
+    
+    if parser.np_level == 1: words.append("DNP")
+    elif parser.np_level == 2: words.append("GNP")
+    
+    if parser.reuse_level: words.append(f"M{parser.reuse_level}")
+    
+    if not words: words.append("Control")
+    
+    return '_'.join(words)
+
 if __name__ == "__main__":
-    try:
-        parser = parse()
-        log_name:str = ""
-        assert all(getattr(parser, s) is not None for s in "np_level reuse_level prefix".split())
-        if parser.np_level == 1: log_name += "DNP"
-        elif parser.np_level == 2: log_name += "GNP"
-        if parser.reuse_level: log_name += ("_" if log_name else "") + f"M{parser.reuse_level}"
-        if log_name == "": log_name = "Control"
-        if parser.prefix: log_name = parser.prefix + "_" + log_name 
-        run_test(CFG(log_name=log_name,
+    parser = parse()
+    if all(getattr(parser, s) is not None for s in "np_level reuse_level prefix".split()):
+        run_test(CFG(log_name=prepare_log_name(parser),
                      np_level=parser.np_level,
                      reuse_level=parser.reuse_level,
                      seed=parser.seed,
-                     deltas=tuple(range(0, parser.delta_max+1))))
-    except AssertionError as e:
+                     deltas=tuple(range(1, parser.delta_max+1))))
+    else:
         for cfg in cfgs:
             run_test(cfg)
