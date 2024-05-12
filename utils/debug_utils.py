@@ -1,7 +1,7 @@
 from typing import List
 import numpy as np
 from z3 import ModelRef, RatNumRef
-from .dictionary import *
+from .dictionary_iris import *
 import json
 
 def dump(_model:ModelRef,

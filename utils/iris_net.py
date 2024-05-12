@@ -1,5 +1,5 @@
 from torch import nn
-from .dictionary import *
+from .dictionary_iris import *
 import snntorch as snn
 import torch
 

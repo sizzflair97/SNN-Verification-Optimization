@@ -15,7 +15,7 @@ import numpy as np
 import itertools
 
 batch_size = 128
-data_path = '/data/mnist'
+data_path = 'data/mnist'
 location = '.'
 neurons_in_layers = [28*28, 100, 10]
 num_steps = 10

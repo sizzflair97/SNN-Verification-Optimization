@@ -1,5 +1,6 @@
 *.old
 Models
+data
 *.log
 *.err
 *.out

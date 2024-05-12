@@ -1,5 +1,6 @@
 from utils import *
-from adv_rob_iris_module import run_test
+from adv_rob_iris_module import run_test as run_test_iris
+from adv_rob_mnist_module import run_test as run_test_mnist
 from numpy import arange
 from argparse import ArgumentParser, Namespace
 
@@ -8,6 +9,11 @@ cfgs = [
     CFG("Manual_Control", np_level=0, deltas=deltas),
     CFG("Manual_DNP", np_level=1, deltas=deltas),
 ]
+
+TestType = Literal["iris", "mnist"]
+def run_test(cfg:CFG, test_type:TestType="mnist"):
+    if test_type == "iris": return run_test_iris(cfg)
+    elif test_type == "mnist": return run_test_mnist(cfg)
 
 def parse():
     parser = ArgumentParser()
@@ -23,8 +29,8 @@ def prepare_log_name(parser:Namespace) -> str:
     
     if parser.prefix: words.append(parser.prefix)
     
-    if parser.np_level == 1: words.append("DNP")
-    elif parser.np_level == 2: words.append("GNP")
+    # if parser.np_level == 1: words.append("DNP")
+    # elif parser.np_level == 2: words.append("GNP")
     
     if parser.reuse_level: words.append(f"M{parser.reuse_level}")
     

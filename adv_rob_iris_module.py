@@ -13,6 +13,9 @@ from tqdm.auto import tqdm
 from z3 import *
 from collections import defaultdict
 from utils import *
+from utils.dictionary_iris import *
+from utils.encoding_iris import *
+from utils import IrisNet as Net
 
 def info(msg:Any):
     print(msg) or logging.getLogger().info(msg) # type: ignore
@@ -56,7 +59,7 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
                 optimizer.zero_grad()
                 loss_val.backward()
                 optimizer.step()
-
+                
                 # Store loss history for future plotting
                 loss_hist.append(loss_val.item())
 
@@ -66,6 +69,8 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
                 except ValueError:
                     print(loss_hist[-1])
                 iter_counter += 1
+            
+            info((net.fc2.weight@net.fc1.weight)*((num_steps+1)*beta**num_steps-beta**(num_steps+1)+1)/(1-beta)**2)
         # info("Saving model.pth")
         # torch.save(net, file_name)
     else:
@@ -79,7 +84,7 @@ def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
             spike_data:Tensor = encoding_func(data, num_steps=num_steps) # type: ignore
             spk_rec, mem_rec = net(spike_data.view(num_steps, -1))
             idx = torch.sum(spk_rec, dim=0).argmax() # rate encoding prediction
-            print(idx, test_targets[i], flush=True)
+            # print(idx, test_targets[i], flush=True)
             pbar.desc = f"{idx}, {test_targets[i]}"
             if idx == test_targets[i]:
                 acc += 1
@@ -108,18 +113,23 @@ def run_test(cfg:CFG):
     net = prepare_net(iris_data, iris_targets)
     
     # take a random input and make it into a spike train
-    spike_indicators = gen_s_indicator()
-    potentials = gen_p_indicator()
-    weights = gen_w_indicator([net.fc1.weight, net.fc2.weight])
-    pot_init = gen_initial_potential_terms(potentials)
+    spike_indicators = gen_spikes()
+    potentials = gen_potentials()
+    weights = gen_weights([net.fc1.weight, net.fc2.weight])
+    pot_init = gen_initial_potentials(potentials)
 
     #Node eqns
     assign:List[BoolRef] = []
-    node_eqn:List[BoolRef] = gen_node_eqns(weights, spike_indicators, potentials)
+    node_eqn:List[Union[BoolRef,Literal[False]]] = []
+    #In neuron pruning, indicators and potentials are modified.
     if cfg.np_level == 1:
-        node_eqn += gen_DNP(weights, spike_indicators)
+        node_eqn.extend(gen_dnp_v2(weights, spike_indicators, potentials))
     elif cfg.np_level == 2:
-        node_eqn += gen_GNP(weights, spike_indicators)
+        node_eqn.extend(gen_gnp(weights, spike_indicators))
+    elif cfg.np_level == 3:
+        node_eqn.extend(gen_gnp_v2(weights, spike_indicators))
+    
+    node_eqn.extend(gen_node_eqns(weights, spike_indicators, potentials))
 
     #Randomly draw samples
     samples = iris_data[np.random.choice(range(len(iris_data)), cfg.num_samples)] # type: ignore
@@ -130,14 +140,16 @@ def run_test(cfg:CFG):
         avt = 0
         
         global check_sample
-        def check_sample(sample_tuple:Tuple[int, Tensor]) -> Tuple[float, int, str]:
+        def check_sample(sample:Tuple[int, Tensor]) -> Tuple[float, int, str]:
             sample_no:int; sample_spike:Tensor;
-            sample_no, sample_spike = sample_tuple
+            sample_no, sample_spike = sample
             res, label_var, control = forward_net(sample_spike.view(num_steps, -1), spike_indicators, assign+node_eqn+pot_init)
-            if res == 'unsat':
+            if res in {'unsat','unknown'}:
+                info(f'Could not find model at delta = {delta}, sample = {sample_no}')
                 return -1, delta, res
             del res
             
+            control = control.model()
             prop = gen_delta_reuse(cfg, sample_spike, spike_indicators, potentials, delta, control)
             # Output property
             #tx = time.time()
@@ -164,7 +176,7 @@ def run_test(cfg:CFG):
                        for sample in samples]
         
         if mp:
-            with Pool() as pool:
+            with Pool(processes=num_procs) as pool:
                 tss_lst = pool.map(check_sample, enumerate(sample_spks))
             for tss, delta, res in tss_lst:
                 avt += tss
