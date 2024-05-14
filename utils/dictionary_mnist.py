@@ -5,19 +5,19 @@ import torch
 #Model default params
 batch_size = 128
 location = '.'
-neurons_in_layers = [28*28, 100, 10] # [28*28, 100, 10] default
+layers = [28*28, 100, 10] # [28*28, 100, 10] default
 beta = 0.95
 dtype = torch.float
 num_steps = 10
 data_path = 'data/mnist'
 delta = [1]
 num_epochs = 1
-load = False
+train = True
 threshold = 1.0
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 mp = True #
-num_procs:Union[int,None] = 3 # None -> auto-detect # of cores.
+num_procs:int = 3 # None -> auto-detect # of cores.
 
 #Code Function typing
 NodeIdx = int; LayerIdx = int; TimeIdx = int

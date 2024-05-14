@@ -1,8 +1,11 @@
-from typing import List
+from typing import Any, List
 import numpy as np
 from z3 import ModelRef, RatNumRef
 from .dictionary_iris import *
-import json
+import json, logging
+
+def info(msg:Any):
+    print(msg) or logging.getLogger().info(msg) # type: ignore
 
 def dump(_model:ModelRef,
          spike_indicators:Dict[NeuronTuple, BoolRef],

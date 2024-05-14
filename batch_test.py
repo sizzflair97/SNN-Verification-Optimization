@@ -4,10 +4,9 @@ from adv_rob_mnist_module import run_test as run_test_mnist
 from numpy import arange
 from argparse import ArgumentParser, Namespace
 
-deltas = (1,2,3)
+deltas = (1,)
 cfgs = [
     CFG("Manual_Control", np_level=0, deltas=deltas),
-    CFG("Manual_DNP", np_level=1, deltas=deltas),
 ]
 
 TestType = Literal["iris", "mnist"]

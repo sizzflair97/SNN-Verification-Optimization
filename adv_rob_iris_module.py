@@ -17,9 +17,6 @@ from utils.dictionary_iris import *
 from utils.encoding_iris import *
 from utils import IrisNet as Net
 
-def info(msg:Any):
-    print(msg) or logging.getLogger().info(msg) # type: ignore
-
 def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
     loss_hist = []
     seq = np.random.permutation(len(iris_targets))

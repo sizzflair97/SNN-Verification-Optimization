@@ -4,7 +4,8 @@ data
 *.log
 *.err
 *.out
-model_iris.pth
+*.pth
 .vs*
 *__pycache__*
 *.pyc
+eqn

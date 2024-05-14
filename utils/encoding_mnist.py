@@ -2,44 +2,48 @@ from math import floor, log
 from types import MappingProxyType
 import uuid
 from torch import Tensor
+from tqdm.auto import tqdm
 from z3 import *
 from typing import Any, Dict, Literal, Set, Tuple, List, DefaultDict, Union
 from collections import defaultdict
 from .dictionary_mnist import *
 from .config import CFG
 from .mnist_net import MnistNet as Net
+from .debug_utils import info
 import pdb
 
 def gen_spikes() -> SpkType:
     spike_indicators:SpkType = SpkType({})
-    for t in range(num_steps):
-        for j, m in enumerate(neurons_in_layers):
+    for t in tqdm(range(num_steps)):
+        for j, m in enumerate(layers):
             if j == 0:
                 for i in range(m):
                     spike_indicators[(i, j, t + 1)] = Bool(f'bSpk_{i}_{j}_{t + 1}')
             else:
                 for i in range(m):
                     spike_indicators[(i, j, t+1)] = Bool(f'bSpk_{i}_{j}_{t+1}')
-
+    info("Spikes are generated.")
     return spike_indicators
 
 def gen_potentials() -> PotType:
     potentials:PotType = PotType({})
     for t in range(num_steps+1):
-        for j, m in enumerate(neurons_in_layers):
+        for j, m in enumerate(layers):
             if j == 0:
                 continue
             for i in range(m):
                 potentials[(i, j, t)] = Real(f'rPot_{i}_{j}_{t}')
+    info("Potentials are generated.")
     return potentials
 
 def gen_weights(net:Net):
     weights:WeightType = WeightType(defaultdict(float))
-    for k in range(0, len(neurons_in_layers)-1):
+    for k in range(0, len(layers)-1):
         w = net.fc_layers[k].weight
         for j in range(len(w)):
             for i in range(len(w[j])):
                 weights[(i, j, k)] = float(w[j][i])
+    info("Weights are generated.")
     return weights
 
 def gen_initial_potentials(potentials:PotType):
@@ -49,6 +53,7 @@ def gen_initial_potentials(potentials:PotType):
             continue
         for i in range(m):
             pot_init.append(potentials[(i, j, 0)] == 0)
+    info("Potentials are initialized.")
     return pot_init
 
 def gen_dnp(weights:WeightType, spike_indicators:SpkType):
@@ -75,7 +80,7 @@ def gen_dnp(weights:WeightType, spike_indicators:SpkType):
             #         < threshold * (1-beta),
             #         Not(Or([spike_indicators[(i, in_layer+1, t)]
             #                 for t in range(1, num_steps+1)]))))
-    print(f"Total Dead Neurons: {total_dns}")
+    info(f"Total Dead Neurons: {total_dns}")
     return node_eqn
 
 def gen_dnp_v2(weights:WeightType, spike_indicators:SpkType, potentials:PotType):
@@ -106,7 +111,7 @@ def gen_dnp_v2(weights:WeightType, spike_indicators:SpkType, potentials:PotType)
             #         < threshold * (1-beta),
             #         Not(Or([spike_indicators[(i, in_layer+1, t)]
             #                 for t in range(1, num_steps+1)]))))
-    print(f"Total Dead Neurons: {total_dns}")
+    info(f"Total Dead Neurons: {total_dns}")
     return node_eqn
 
 def gen_gnp(weights:WeightType, spike_indicators:SpkType):
@@ -132,6 +137,7 @@ def gen_gnp(weights:WeightType, spike_indicators:SpkType):
                             And([Not(spike_indicators[(i, in_layer+1, tp)])
                                 for tp in range(t+1, min(t+n_max, num_steps+1))]))
                 )
+    info("GNP is applied.")
     return node_eqn
 
 def gen_gnp_v2(weights:WeightType, spike_indicators:SpkType):
@@ -177,6 +183,7 @@ def gen_gnp_v2(weights:WeightType, spike_indicators:SpkType):
                 #         temporary_inactivities
                 #         )
                 #     )
+    info("GNP is applied.")
     return node_eqn
 
 def gen_input_layer_current_bound(weights:WeightType, spike_indicators:SpkType, spike_orig:Tensor, delta:int):
@@ -250,10 +257,10 @@ def get_bound(w_vector:List[float], x_vector_orig:List[float], delta:int, is_fir
 def gen_node_eqns(weights:WeightType, spike_indicators:SpkType, potentials:PotType):
     node_eqn:List[Union[BoolRef,Literal[False]]] = []
     for t in range(1, num_steps+1):
-        for j, m in enumerate(neurons_in_layers[1:], start=1):
+        for j, m in enumerate(layers[1:], start=1):
             for i in range(m):
                 if not (i,j,t) in potentials: continue
-                curr_vec = [spike_indicators[(k, j-1, t)]*weights[(k, i, j-1)] for k in range(neurons_in_layers[j-1])]
+                curr_vec = [spike_indicators[(k, j-1, t)]*weights[(k, i, j-1)] for k in range(layers[j-1])]
                 curr = sum(curr_vec) + beta*potentials[(i, j, t-1)] # type: ignore # epsilon_1
                 node_eqn.append(
                     (curr >= threshold) == spike_indicators[(i, j, t)]
@@ -265,7 +272,7 @@ def gen_node_eqns(weights:WeightType, spike_indicators:SpkType, potentials:PotTy
                     #     Implies(Not(spike_indicators[(i, j, t)]),
                     #             potentials[(i, j, t)] == curr))) # type: ignore # epsilon_3 & epsilon_5
                 )# node_eqn = []
-
+    info("Node equations are generated.")
     return node_eqn
 
 def gen_node_eqns_bounded(weights:WeightType, spike_indicators:SpkType, potentials:PotType, spk_orig:Tensor, delta:int):

@@ -1,4 +1,4 @@
-from torch import nn
+from torch import Tensor, nn
 from .dictionary_mnist import *
 import snntorch as snn
 import torch
@@ -70,17 +70,18 @@ class MnistNet(nn.Module):
 
         return new_net
 
-    def forward(self, x, return_all=False):
+    # def forward(self, x, return_all=False) -> Union[Tuple[List[Tensor], List[Tensor]], Tuple[Tensor, Tensor]]:
+    def forward(self, x, return_all=False) -> Tuple[List[List[Tensor]], List[List[Tensor]]]:
 
         # Initialize hidden states at t=0
         mem_list = [
             layer.init_leaky() for layer in self.leaky_layers
         ]
 
-        list_of_spikes = []
-        list_of_potentials = []
-        last_spikes = []
-        last_pot = []
+        list_of_spikes:List[List[Tensor]] = []
+        list_of_potentials:List[List[Tensor]] = []
+        last_spikes:List[Tensor] = []
+        last_pot:List[Tensor] = []
         for step in range(num_steps):
             input_spikes = x[step]
 
@@ -100,8 +101,11 @@ class MnistNet(nn.Module):
 
             list_of_spikes.append(output_spikes)
             list_of_potentials.append(output_potentials)
+        return list_of_spikes, list_of_potentials
+        # if return_all:
+        #     return list_of_spikes, list_of_potentials
+        # else:
+        #     return last_spikes, last_pot
 
-        if return_all:
-            return list_of_spikes, list_of_potentials
-        else:
-            return last_spikes, last_pot
+    def extract_last_spikes(self, list_of_spikes:List[List[Tensor]])->List[Tensor]:
+        return [spikes_of_a_step[-1] for spikes_of_a_step in list_of_spikes]
