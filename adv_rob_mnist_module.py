@@ -45,12 +45,12 @@ def prepare_net() -> Net:
     counter = 0
     if train:
         # Outer training loop
-        for epoch in range(num_epochs):
+        for epoch in tqdm(range(num_epochs)):
             iter_counter = 0
             train_batch = iter(train_loader)
 
             # Minibatch training loop
-            for data, targets in (pbar:=tqdm(train_batch)):
+            for data, targets in (pbar:=tqdm(train_batch, leave=False)):
                 data = data.to(device)
                 targets = targets.to(device)
 
@@ -139,7 +139,8 @@ def run_test(cfg:CFG):
         node_eqns.extend(gen_dnp_v2(weights, spike_indicators, potentials))
     elif cfg.np_level == 2:
         node_eqns.extend(gen_gnp(weights, spike_indicators))
-    node_eqns.extend(gen_initial_potentials(potentials))
+
+    return
 
     tx = time.time()
     inp_vec:List[Tensor] = []

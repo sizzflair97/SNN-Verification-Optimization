@@ -32,7 +32,7 @@ def gen_potentials() -> PotType:
             if j == 0:
                 continue
             for i in range(m):
-                potentials[(i, j, t)] = Real(f'rPot_{i}_{j}_{t}')
+                potentials[(i, j, t)] = Real(f'rPot_{i}_{j}_{t}') if t != 0 else RealVal(0)
     info("Potentials are generated.")
     return potentials
 
@@ -45,16 +45,6 @@ def gen_weights(net:Net):
                 weights[(i, j, k)] = float(w[j][i])
     info("Weights are generated.")
     return weights
-
-def gen_initial_potentials(potentials:PotType):
-    pot_init:List[Union[BoolRef, Any]] = []
-    for j, m in enumerate(layers):
-        if j == 0:
-            continue
-        for i in range(m):
-            pot_init.append(potentials[(i, j, 0)] == 0)
-    info("Potentials are initialized.")
-    return pot_init
 
 def gen_dnp(weights:WeightType, spike_indicators:SpkType):
     node_eqn:List[BoolRef] = []
@@ -93,7 +83,16 @@ def gen_dnp_v2(weights:WeightType, spike_indicators:SpkType, potentials:PotType)
         for i in range(n_out_nodes):
             # do not calc neurons to get max_current in prev_dns, because there are only dead neurons.
             curr_max = sum(max(0, weights[(k, i, in_layer)]) for k in range(n_in_nodes) if (k, in_layer) not in prev_dns)
-            if curr_max <= 0 or 1-threshold*(1-beta)/(curr_max) <= 0:
+            if curr_max > 0:
+                score = 1-threshold*(1-beta)/(curr_max)
+                n_max = log(score, beta)
+                if int(n_max) == n_max:
+                    n_max = int(n_max-1) # n_max means number of steps that neuron does not spike.
+                else:
+                    n_max = floor(n_max)
+                if n_max < num_steps:
+                    continue
+            # if curr_max <= 0 or 1-threshold*(1-beta)/(curr_max) <= 0:
                 total_dns += 1
                 dns.append((i, in_layer+1)) # save dead neuron: (node_idx, layer_idx)
                 # node_eqn.append(
@@ -256,9 +255,9 @@ def get_bound(w_vector:List[float], x_vector_orig:List[float], delta:int, is_fir
     
 def gen_node_eqns(weights:WeightType, spike_indicators:SpkType, potentials:PotType):
     node_eqn:List[Union[BoolRef,Literal[False]]] = []
-    for t in range(1, num_steps+1):
+    for t in tqdm(range(1, num_steps+1), desc="Generating node equations. timestep: "):
         for j, m in enumerate(layers[1:], start=1):
-            for i in range(m):
+            for i in tqdm(range(m), leave=False, desc="Nodes: "):
                 if not (i,j,t) in potentials: continue
                 curr_vec = [spike_indicators[(k, j-1, t)]*weights[(k, i, j-1)] for k in range(layers[j-1])]
                 curr = sum(curr_vec) + beta*potentials[(i, j, t-1)] # type: ignore # epsilon_1

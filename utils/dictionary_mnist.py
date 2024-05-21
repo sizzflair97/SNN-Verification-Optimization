@@ -11,13 +11,13 @@ dtype = torch.float
 num_steps = 10
 data_path = 'data/mnist'
 delta = [1]
-num_epochs = 1
+num_epochs = 3
 train = True
 threshold = 1.0
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 mp = True #
-num_procs:int = 3 # None -> auto-detect # of cores.
+num_procs:int = 2 # None -> auto-detect # of cores.
 
 #Code Function typing
 NodeIdx = int; LayerIdx = int; TimeIdx = int
