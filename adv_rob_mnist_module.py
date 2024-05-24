@@ -3,6 +3,8 @@ from multiprocessing import Pipe, Pool
 import functools, time, logging, json
 from time import localtime, strftime
 from typing import Any
+
+from mnist import MNIST
 from snntorch import spikegen
 from snntorch import functional as SF
 from torchvision import transforms, datasets
@@ -25,95 +27,94 @@ transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0,), (1,))])
 
+def load_mnist():
+    # Parameter setting
+    NumOfClasses = layers[-1]  # Number of classes
+    GrayLevels = 255  # Image GrayLevels
+    cats = [*range(10)]
+
+    # General variables
+    images = []  # To keep training images
+    labels = []  # To keep training labels
+    images_test = []  # To keep test images
+    labels_test = []  # To keep test labels
+
+    # loading MNIST dataset
+    mndata = MNIST('data/mnist/MNIST/raw/')
+    # mndata.gz = False
+
+    Images, Labels = mndata.load_training()
+    Images = np.array(Images)
+    for i in range(len(Labels)):
+        if Labels[i] in cats:
+            images.append(np.floor((GrayLevels - Images[i].reshape(28, 28)) * num_steps / GrayLevels).astype(int))
+            labels.append(cats.index(Labels[i]))
+
+    Images, Labels = mndata.load_testing()
+    Images = np.array(Images)
+    for i in range(len(Labels)):
+        if Labels[i] in cats:
+            # images_test.append(TTT[i].reshape(28,28).astype(int))
+            images_test.append(np.floor((GrayLevels - Images[i].reshape(28, 28)) * num_steps / GrayLevels).astype(int))
+            labels_test.append(cats.index(Labels[i]))
+
+    del Images, Labels
+
+    images = np.asarray(images)
+    labels = np.asarray(labels)
+    images_test = np.asarray(images_test)
+    labels_test = np.asarray(labels_test)
+    
+    return images, labels, images_test, labels_test
+
+layerSize = [[28, 28], [layers[-2], 1], [layers[-1], 1]]
+mgrid = np.mgrid[0:28, 0:28]
+def forward(weights_list:List[Tensor], img:Tensor):
+    SpikeImage = np.zeros((28,28,num_steps+1))
+    firingTime = []
+    Spikes = []
+    X = []
+    for layer, neuron_of_layer in enumerate(layers[1:]):
+        firingTime.append(np.asarray(np.zeros(neuron_of_layer)))
+        Spikes.append(np.asarray(np.zeros((layerSize[layer + 1][0], layerSize[layer + 1][1], num_steps + 1))))
+        X.append(np.asarray(np.mgrid[0:layerSize[layer + 1][0], 0:layerSize[layer + 1][1]]))
+    
+    SpikeList = [SpikeImage] + Spikes
+    
+    SpikeImage[mgrid[0], mgrid[1], img] = 1
+    for layer in range(len(layers)-1):
+        Voltage = np.cumsum(np.tensordot(weights_list[layer], SpikeList[layer]), 1)
+        Voltage[:, num_steps] = threshold + 1
+        firingTime[layer] = np.argmax(Voltage > threshold, axis=1).astype(float) + 1
+        firingTime[layer][firingTime[layer] > num_steps] = num_steps
+        Spikes[layer][:, :, :] = 0
+        Spikes[layer][X[layer][0], X[layer][1], firingTime[layer].reshape(layers[layer+1], 1).astype(int)] = 1
+    minFiringTime = firingTime[len(layers)-1 - 1].min()
+    if minFiringTime == num_steps:
+        V = np.argmax(Voltage[:, num_steps - 3])
+    else:
+        V = np.argmin(firingTime[-1])
+    return V
+
 def prepare_net() -> Net:
-    # Load the network onto CUDA if available
-    
-
-    mnist_train = datasets.MNIST(data_path, train=True, download=True, transform=transform)
-    mnist_test = datasets.MNIST(data_path, train=False, download=True, transform=transform)
-
-    train_loader = DataLoader(mnist_train, batch_size=batch_size, shuffle=True, drop_last=True)
-    test_loader = DataLoader(mnist_test, batch_size=batch_size, shuffle=True, drop_last=True)
-
-    net = Net(layers, loss_value=beta).to(device)
-
-    loss = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(net.parameters(), lr=5e-4, betas=(0.9, 0.999))
-
-    loss_hist = []
-    test_loss_hist = []
-    counter = 0
     if train:
-        # Outer training loop
-        for epoch in tqdm(range(num_epochs)):
-            iter_counter = 0
-            train_batch = iter(train_loader)
+        raise NotImplementedError("The model must be trained from S4NN.")
+    else:
+        weights_list = np.load("mnist_weights_best.npy", allow_pickle=True)
+        info('Model loaded')
 
-            # Minibatch training loop
-            for data, targets in (pbar:=tqdm(train_batch, leave=False)):
-                data = data.to(device)
-                targets = targets.to(device)
-
-                spike_data = spikegen.rate(data, num_steps=num_steps) # type: ignore
-
-                # forward pass
-                net.train()
-                spk_rec, mem_rec = net(spike_data.view(num_steps, batch_size, -1), return_all=True)
-
-                # initialize the loss & sum over time
-                loss_val = torch.zeros((1), dtype=dtype, device=device)
-                for step in range(num_steps):
-                    loss_val += loss(mem_rec[step][-1], targets)
-
-                # Gradient calculation + weight update
-                optimizer.zero_grad()
-                loss_val.backward()
-                optimizer.step()
-
-                # Store loss history for future plotting
-                loss_hist.append(loss_val.item())
+    images, labels, images_test, labels_test = load_mnist()
     
-    info("Net is prepared.")
-
-        #torch.save(net, f'/Models/model_{num_hidden}.pth')
-    #     torch.save(net, f'{location}\\Models\\model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
-    #     info("Model Saved")
-    # else:
-    #     net = torch.load(f'{location}\\Models\\model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
-    #     info('Model loaded')
-
-    total = 0
-    correct = 0
-    test_batch_size = 1
-    # drop_last switched to False to keep all samples
-    test_loader = DataLoader(mnist_test, batch_size=test_batch_size, shuffle=True, drop_last=False)
-    test_log = True
-    tt = []
-    if test_log:
-        with torch.no_grad():
-            net.eval()
-            c = 1
-            for data, targets in (pbar:=tqdm(test_loader)):
-                t = time.time()
-                data = data.to(device)
-                targets = targets.to(device)
-
-                test_spike_data = spikegen.rate(data, num_steps=num_steps) # type: ignore
-
-                # forward pass
-                list_of_spikes:List[List[Tensor]]
-                list_of_spikes, _ = net(test_spike_data.view(num_steps, test_batch_size, -1))
-                last_spikes = net.extract_last_spikes(list_of_spikes)
-                # calculate total accuracy
-                # predicted = torch.cat(test_spk).sum(dim=0).argmax()
-                predicted = torch.cat(last_spikes).sum(dim=0).argmax()
-                total += targets.size(0)
-                correct += (predicted == targets).sum().item()
-                tt.append(time.time()-t)
-                c += 1
-
-        info(f"Total correctly classified test set images: {correct}/{total} in avg.time {sum(tt)/len(tt)}")
-    return net
+    with torch.no_grad():
+        correct = 0
+        x = np.mgrid[0:28, 0:28] 
+        for i, (image, target) in (pbar:=tqdm(enumerate(zip(images,labels), start=1), total=len(images))):
+            predicted = forward(weights_list, image)
+            if predicted == target:
+                correct += 1
+            pbar.desc = f"Acc {correct/i*100:.2f}, predicted {predicted}, target {target}"
+    info(f"Total correctly classified test set images: {correct}/{len(images)}")
+    return weights_list
 
 def run_test(cfg:CFG):
     log_name = f"{strftime('%m%d%H%M', localtime())}_{cfg.log_name}.log"

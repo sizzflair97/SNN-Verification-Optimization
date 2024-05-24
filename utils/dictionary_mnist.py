@@ -5,15 +5,15 @@ import torch
 #Model default params
 batch_size = 128
 location = '.'
-layers = [28*28, 100, 10] # [28*28, 100, 10] default
-beta = 0.95
+layers = [28*28, 400, 10] # [28*28, 100, 10] default
+beta = 1
 dtype = torch.float
-num_steps = 10
+num_steps = 256
 data_path = 'data/mnist'
 delta = [1]
-num_epochs = 3
-train = True
-threshold = 1.0
+num_epochs = 300
+train = False
+threshold = 100
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 mp = True #
