@@ -99,7 +99,10 @@ def prepare_weights() -> TWeightList:
     if train:
         raise NotImplementedError("The model must be trained from S4NN.")
     else:
-        weights_list = np.load("mnist_weights_best.npy", allow_pickle=True)
+        # weights_list = np.load("mnist_weights_best.npy", allow_pickle=True)
+        weights_list = []
+        for layer in range(len(n_layer_neurons) - 1):
+            weights_list.append(np.load(f"weights_{layer}.npy"))
         info('Model loaded')
 
     if not test: return weights_list
@@ -137,7 +140,7 @@ def run_test(cfg:CFG):
     spike_times = gen_spike_times()
     weights = gen_weights(weights_list)
     if load_expr:
-        S.from_file(rf'{location}\eqn\eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt')
+        S.from_file(f'eqn/eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt')
     else:
         node_eqns = gen_node_eqns(weights, spike_indicators, spike_times)
         S.add(node_eqns)
@@ -146,7 +149,7 @@ def run_test(cfg:CFG):
         # elif cfg.np_level == 2:
         #     node_eqns.extend(gen_gnp(weights, spike_indicators))
         try:
-            with open(rf'eqn\eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt', 'w') as f:
+            with open(rf'eqn/eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt', 'w') as f:
                 f.write(S.sexpr())
                 info("Node equations are saved.")
         except:
@@ -173,50 +176,39 @@ def run_test(cfg:CFG):
             img, orig_pred = sample
             # Input property
             tx = time.time()
-            s = [[] for _ in range(num_steps)]
-            sv = [Int(f's_{i + 1}') for i in range(num_steps)]
             prop = []
+            
+            max_delta_per_neuron = 1
+            delta_sum = Int("Delta_sum")
             input_neurons = product(range(layer_shapes[0][0]), range(layer_shapes[0][1]))
             for in_neuron in input_neurons:
-                prop.append(spike_times[in_neuron, 0] - img[in_neuron] <= delta)
-                
-            # for timestep, spike_train in enumerate(img):
-            #     for i, spike in enumerate(spike_train.view(n_layer_neurons[0])):
-            #         if spike == 1:
-            #             s[timestep].append(If(spike_indicators[(i, 0, timestep + 1)], 0.0, 1.0))
-            #         else:
-            #             s[timestep].append(If(spike_indicators[(i, 0, timestep + 1)], 1.0, 0.0))
-            # prop = [sv[i] == sum(s[i]) for i in range(num_steps)]
-            # prop.append(sum(sv) <= delta)
-            # info(prop[0])
+                neuron_spktime_delta = spike_times[in_neuron,0] - int(img[in_neuron])
+                prop.append(neuron_spktime_delta <= max_delta_per_neuron)
+                delta_sum += neuron_spktime_delta
+            prop.append(delta_sum <= delta)
             info(f"Inputs Property Done in {time.time() - tx} sec")
 
             # Output property
             tx = time.time()
             op = []
+            
             orig_neuron = (orig_pred, 0)
             out_neurons = product(range(layer_shapes[-1][0]), range(layer_shapes[-1][1]))
             for out_neuron in out_neurons:
                 if out_neuron == orig_neuron:
                     continue
                 op.append(
-                    spike_times[out_neuron, len(n_layer_neurons)-1] >= spike_times[orig_neuron, len(n_layer_neurons)-1] + 1
+                    spike_times[out_neuron, len(n_layer_neurons)-1] > spike_times[orig_neuron, len(n_layer_neurons)-1]
                 )
-            # intend_sum = sum([2 * spike_indicators[(label, 2, timestep + 1)] for timestep in range(num_steps)])
-            # for t in range(n_layer_neurons[-1]):
-            #     if t != label:
-            #         op.append(
-            #             Not(intend_sum > sum([2 * spike_indicators[(t, 2, timestep + 1)] for timestep in range(num_steps)]))
-            #         )
+            op = Not(And(op))
             info(f'Output Property Done in {time.time() - tx} sec')
 
             tx = time.time()
             S = Solver()
-            S.from_file(rf'{location}\eqn\eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt')
-            # S.from_file(f'{location}\\eqn\\eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt')
+            S.from_file(f'eqn/eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt')
             info(f'Network Encoding read in {time.time() - tx} sec')
-            # S.add(op + prop)
-            S.add(op + prop)
+            S.add(op)
+            S.add(prop)
             info(f'Total model ready in {time.time() - tx}')
 
             info('Query processing starts')
@@ -227,6 +219,7 @@ def run_test(cfg:CFG):
                 info(f'Not robust for sample and delta={delta}')
             else:
                 info(f'Robust for sample and delta={delta}')
+            pdb.set_trace()
         
         samples = zip(inp_vec, label_vec)
         if mp:
@@ -234,147 +227,6 @@ def run_test(cfg:CFG):
                 pool.map(check_sample, samples)
         for sample in samples:
             check_sample(sample)
-            # # Input property
-            # tx = time.time()
-            # s = [[] for _ in range(num_steps)]
-            # sv = [Int(f's_{i + 1}') for i in range(num_steps)]
-            # prop = []
-            # for timestep, spike_train in enumerate(inp):
-            #     for i, spike in enumerate(spike_train.view(layers[0])):
-            #         if spike == 1:
-            #             s[timestep].append(If(spike_indicators[(i, 0, timestep + 1)], 0.0, 1.0))
-            #         else:
-            #             s[timestep].append(If(spike_indicators[(i, 0, timestep + 1)], 1.0, 0.0))
-            # prop = [sv[i] == sum(s[i]) for i in range(num_steps)]
-            # prop.append(sum(sv) <= dt)
-            # # info(prop[0])
-            # info(f"Inputs Property Done in {time.time() - tx} sec")
-
-            # # Output property
-            # tx = time.time()
-            # op = []
-            # intend_sum = sum([2 * spike_indicators[(label, 2, timestep + 1)] for timestep in range(num_steps)])
-            # for t in range(layers[-1]):
-            #     if t != label:
-            #         op.append(
-            #             Not(intend_sum > sum([2 * spike_indicators[(t, 2, timestep + 1)] for timestep in range(num_steps)]))
-            #         )
-            # info(f'Output Property Done in {time.time() - tx} sec')
-
-            # tx = time.time()
-            # S = Solver()
-            # # S.from_file(f'{location}\\eqn\\eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt')
-            # info(f'Network Encoding read in {time.time() - tx} sec')
-            # # S.add(op + prop)
-            # S.add(op + node_eqns + prop)
-            # info(f'Total model ready in {time.time() - tx}')
-
-            # info('Query processing starts')
-            # tx = time.time()
-            # result = S.check()
-            # info(f'Checking done in time {time.time() - tx}')
-            # if result == sat:
-            #     info(f'Not robust for sample and delta={dt}')
-            # else:
-            #     info(f'Robust for sample and delta={dt}')
-        # # Input property
-        # tx = time.time()
-        # s = [[] for _ in range(num_steps)]
-        # sv = [Int(f's_{i + 1}') for i in range(num_steps)]
-        # prop = []
-        # for timestep, spike_train in enumerate(inp):
-        #     for i, spike in enumerate(spike_train.view(layers[0])):
-        #         if spike == 1:
-        #             s[timestep].append(If(spike_indicators[(i, 0, timestep + 1)], 0.0, 1.0))
-        #         else:
-        #             s[timestep].append(If(spike_indicators[(i, 0, timestep + 1)], 1.0, 0.0))
-        # prop = [sv[i] == sum(s[i]) for i in range(num_steps)]
-        # prop.append(sum(sv) <= dt)
-        # # info(prop[0])
-        # info(f"Inputs Property Done in {time.time() - tx} sec")
-
-        # # Output property
-        # tx = time.time()
-        # op = []
-        # intend_sum = sum([2 * spike_indicators[(label, 2, timestep + 1)] for timestep in range(num_steps)])
-        # for t in range(layers[-1]):
-        #     if t != label:
-        #         op.append(
-        #             Not(intend_sum > sum([2 * spike_indicators[(t, 2, timestep + 1)] for timestep in range(num_steps)]))
-        #         )
-        # info(f'Output Property Done in {time.time() - tx} sec')
-
-        # tx = time.time()
-        # S = Solver()
-        # # S.from_file(f'{location}\\eqn\\eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt')
-        # info(f'Network Encoding read in {time.time() - tx} sec')
-        # # S.add(op + prop)
-        # S.add(op + node_eqns + prop)
-        # info(f'Total model ready in {time.time() - tx}')
-
-        # info('Query processing starts')
-        # tx = time.time()
-        # result = S.check()
-        # info(f'Checking done in time {time.time() - tx}')
-        # if result == sat:
-        #     info(f'Not robust for sample and delta={dt}')
-        # else:
-        #     info(f'Robust for sample and delta={dt}')
-
-    # delta_v = {d: 0 for d in cfg.deltas}
-    # for delta in cfg.deltas:
-    #     avt = 0
-        
-    #     global check_sample
-    #     def check_sample(sample:Tuple[int, Tensor]) -> Tuple[float, int, str]:
-    #         sample_no:int; sample_spike:Tensor;
-    #         sample_no, sample_spike = sample
-    #         res, label_var, control = forward_net(sample_spike.view(num_steps, -1), spike_indicators, assign+node_eqn+pot_init)
-    #         if res in {'unsat','unknown'}:
-    #             info(f'Could not find model at delta = {delta}, sample = {sample_no}')
-    #             return -1, delta, res
-    #         del res
-            
-    #         control = control.model()
-    #         prop = gen_delta_reuse(cfg, sample_spike, spike_indicators, potentials, delta, control)
-    #         # Output property
-    #         #tx = time.time()
-    #         op = []
-    #         label = control[label_var].as_long() # type: ignore
-            
-    #         S = Solver()
-    #         intend_sum = sum([2 * spike_indicators[(label, 2, timestep)] for timestep in range(1, num_steps+1)])
-    #         for t in range(num_output):
-    #             if t != label:
-    #                 op.append(
-    #                     Not(intend_sum > sum([2 * spike_indicators[(t, 2, timestep)] for timestep in range(1, num_steps+1)]))
-    #                 )
-    #         S.add(assign+node_eqn+pot_init+prop+op)
-            
-    #         tx = time.time()
-    #         res:Literal["sat", "unsat", "unknown"] = str(S.check()) # type: ignore
-    #         del S
-    #         tss = time.time()-tx
-    #         info(f'Completed for delta = {delta}, sample = {sample_no} in {tss} sec as {res}')
-    #         return tss, delta, res
-        
-    #     sample_spks = [spikegen.rate(torch.tensor(sample, dtype=torch.float), num_steps=num_steps) # type: ignore
-    #                    for sample in samples]
-        
-    #     if mp:
-    #         with Pool(processes=num_procs) as pool:
-    #             tss_lst = pool.map(check_sample, enumerate(sample_spks))
-    #         for tss, delta, res in tss_lst:
-    #             avt += tss
-    #             delta_v[delta] += 1 if res == "unsat" else 0
-    #         avt /= len(sample_spks)
-    #     else:
-    #         for sample_no, sample_spike in enumerate(sample_spks):
-    #             tss, delta, res = check_sample((sample_no, sample_spike))
-    #             avt = (avt*sample_no + tss)/(sample_no+1)
-    #             delta_v[delta] += 1 if res == "unsat" else 0
-    #     info(f'Completed for delta = {delta} with {delta_v[delta]} in avg time {avt} sec')
-    #     del check_sample
 
     info("")
 

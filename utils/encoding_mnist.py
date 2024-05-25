@@ -57,7 +57,7 @@ def gen_weights(weights_list:TWeightList):
     info("Weights are generated.")
     return weights
 
-def gen_node_eqns(weights:TWeight, spike_indicators:TSpike, ttfses:TSpikeTime):
+def gen_node_eqns(weights:TWeight, spike_indicators:TSpike, spike_times:TSpikeTime):
     node_eqn:List[BoolRef|bool] = []
     for out_layer, n_out_layer_neurons in enumerate(n_layer_neurons[1:], start=1):
         in_layer = out_layer-1
@@ -69,30 +69,19 @@ def gen_node_eqns(weights:TWeight, spike_indicators:TSpike, ttfses:TSpikeTime):
                 in_neurons = product(range(layer_shapes[in_layer][0]), range(layer_shapes[in_layer][1]))
                 for in_neuron in in_neurons:
                     curr_vec.append(spike_indicators[in_neuron, in_layer, timestep]*weights[in_neuron, out_neuron_pos, in_layer]) # type: ignore
-                # curr_vec = [spike_indicators[(in_neuron, in_layer, timestep)]*weights[(in_neuron, out_neuron, in_layer)] for in_neuron in range(n_layer_neurons[in_layer])]
-                # curr = sum(curr_vec) + beta*potentials[(out_neuron, out_layer, timestep-1)] # type: ignore # epsilon_1 # LIF implementation, but we are using IF model.
                 curr = typecast(ArithRef,sum(curr_vec)) # epsilon_1
                 time_potential.append(curr + time_potential[-1])
-                # LIF rate encoding implementation decreases potential, but not in IF implementation.
-                # node_eqn.append(
-                #     potentials[(out_neuron, out_layer, timestep)] == If(spike_indicators[(out_neuron, out_layer, timestep)], curr-1, curr)
-                
-                    # And(Implies(spike_indicators[(i, j, t)],
-                    #             potentials[(i, j, t)] == curr - 1), # epsilon_2 & epsilon_4
-                    #     Implies(Not(spike_indicators[(i, j, t)]),
-                    #             potentials[(i, j, t)] == curr))) # type: ignore # epsilon_3 & epsilon_5
-                # )# node_eqn = []
                 node_eqn.append(
                     Implies(And(time_potential[-2] < threshold,
                                 time_potential[-1] >= threshold),
                             And(spike_indicators[out_neuron, out_layer, timestep],
-                                ttfses[out_neuron, out_layer] == timestep))
+                                spike_times[out_neuron, out_layer] == timestep))
                 )
             
             node_eqn.append(
                 Implies(time_potential[-1] < threshold,
                         And(spike_indicators[out_neuron, out_layer, num_steps],
-                            ttfses[out_neuron, out_layer] == num_steps)) # We always use position 0 in dimension 1.
+                            spike_times[out_neuron, out_layer] == num_steps)) # We always use position 0 in dimension 1.
             )
     info("Node equations are generated.")
     return node_eqn
