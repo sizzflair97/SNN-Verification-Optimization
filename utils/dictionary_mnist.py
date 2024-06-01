@@ -16,13 +16,13 @@ data_path = 'data/mnist'
 delta = [1]
 num_epochs = 300
 train = False
-test = True
+test = False
 load_expr = False
 threshold = 100
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-mp = False #
-num_procs:int = 2
+mp = True #
+num_procs:int = 14
 
 #Code Function typing
 NodeIdx = Tuple[int, int]; LayerIdx = int; TimeIdx = int # To define neuron states
@@ -34,7 +34,7 @@ In_Out_InLayer = Annotated[Tuple[InNodeIdx, OutNodeIdx, InLayerIdx], "Represents
 TSpike = Dict[Node_Layer_Time, BoolRef|bool]
 TPotential = Dict[Node_Layer_Time, ArithRef]
 TCurrent = Dict[Node_Layer_Time, ArithRef]
-TWeight = DefaultDict[In_Out_InLayer, float]
+TWeight = Dict[In_Out_InLayer, float]
 TSpikeTime = Dict[Tuple[NodeIdx, LayerIdx], ArithRef]
 
 TW1Shape = Tuple[Literal[400], Literal[28], Literal[28]]

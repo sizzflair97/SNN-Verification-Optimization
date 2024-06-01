@@ -2,30 +2,32 @@
 from multiprocessing import Pipe, Pool
 from random import sample as random_sample
 from random import seed
-import functools, time, logging, json, typing
+import time, logging, typing
 from time import localtime, strftime
 from typing import Any
 
 from mnist import MNIST
-from snntorch import spikegen
-from snntorch import functional as SF
+# from snntorch import spikegen
+# from snntorch import functional as SF
 import numpy as np
-import torch
-import torch.nn as nn
-import snntorch as snn
+# import torch
+# import torch.nn as nn
+# import snntorch as snn
 from tqdm.auto import tqdm
 from z3 import *
-from collections import defaultdict
+# from collections import defaultdict
 from utils import *
 from utils.dictionary_mnist import *
 from utils.encoding_mnist import *
-from utils import MnistNet as Net
+# from utils import MnistNet as Net
 
 # transform = transforms.Compose([
 #             transforms.Resize((28, 28)),
 #             transforms.Grayscale(),
 #             transforms.ToTensor(),
 #             transforms.Normalize((0,), (1,))])
+
+eqn_path = f'eqn/eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt'
 
 def load_mnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
     # Parameter setting
@@ -48,7 +50,6 @@ def load_mnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
         if Labels[i] in cats:
             images.append(np.floor((GrayLevels - Images[i].reshape(28, 28)) * num_steps / GrayLevels).astype(int))
             labels.append(cats.index(Labels[i]))
-
     Images, Labels = mndata.load_testing()
     Images = np.array(Images)
     for i in range(len(Labels)):
@@ -59,6 +60,7 @@ def load_mnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
 
     del Images, Labels
 
+    #images contain values within [0,num_steps]
     images = typing.cast(TImageBatch, np.asarray(images))
     labels = typing.cast(TLabelBatch, np.asarray(labels))
     images_test = typing.cast(TImageBatch, np.asarray(images_test))
@@ -83,9 +85,9 @@ def forward(weights_list:TWeightList, img:TImage):
     for layer in range(len(n_layer_neurons)-1):
         Voltage = np.cumsum(np.tensordot(weights_list[layer], SpikeList[layer]), 1)
         Voltage[:, num_steps] = threshold + 1
-        firingTime[layer] = np.argmax(Voltage > threshold, axis=1).astype(float) + 1
-        firingTime[layer][firingTime[layer] > num_steps] = num_steps
-        Spikes[layer][:, :, :] = 0
+        firingTime[layer] = np.argmax(Voltage > threshold, axis=1).astype(float)
+        firingTime[layer][firingTime[layer] > num_steps-1] = num_steps
+        Spikes[layer][...] = 0
         Spikes[layer][X[layer][0], X[layer][1], firingTime[layer].reshape(n_layer_neurons[layer+1], 1).astype(int)] = 1 # All neurons spike only once.
     # minFiringTime = firingTime[len(n_layer_neurons)-1 - 1].min()
     # if minFiringTime == num_steps:
@@ -100,9 +102,10 @@ def prepare_weights() -> TWeightList:
         raise NotImplementedError("The model must be trained from S4NN.")
     else:
         # weights_list = np.load("mnist_weights_best.npy", allow_pickle=True)
+        model_dir_path = f"models/{num_steps}_{'_'.join(str(i) for i in n_layer_neurons)}"
         weights_list = []
         for layer in range(len(n_layer_neurons) - 1):
-            weights_list.append(np.load(f"weights_{layer}.npy"))
+            weights_list.append(np.load(os.path.join(model_dir_path, f"weights_{layer}.npy")))
         info('Model loaded')
 
     if not test: return weights_list
@@ -117,14 +120,14 @@ def prepare_weights() -> TWeightList:
     return weights_list
 
 def run_test(cfg:CFG):
-    log_name = f"{strftime('%m%d%H%M', localtime())}_{cfg.log_name}.log"
+    log_name = f"{strftime('%m%d%H%M', localtime())}_{cfg.log_name}_{num_steps}_{'_'.join(str(l) for l in n_layer_neurons)}.log"
     logging.basicConfig(filename="log/" + log_name, level=logging.INFO)
     info(cfg)
 
     seed(cfg.seed)
     np.random.seed(cfg.seed)
-    torch.manual_seed(cfg.seed)
-    torch.use_deterministic_algorithms(True)
+    # torch.manual_seed(cfg.seed)
+    # torch.use_deterministic_algorithms(True)
 
     weights_list = prepare_weights()
     
@@ -136,32 +139,35 @@ def run_test(cfg:CFG):
     info('Data is loaded')
     
     S = Solver()
-    spike_indicators = gen_spikes()
+    # spike_indicators = gen_spikes()
     spike_times = gen_spike_times()
     weights = gen_weights(weights_list)
     if load_expr:
         S.from_file(f'eqn/eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt')
     else:
-        node_eqns = gen_node_eqns(weights, spike_indicators, spike_times)
+        node_eqns = gen_node_eqns(weights, spike_times)
         S.add(node_eqns)
         # if cfg.np_level == 1:
         #     node_eqns.extend(gen_dnp_v2(weights, spike_indicators, potentials))
         # elif cfg.np_level == 2:
         #     node_eqns.extend(gen_gnp(weights, spike_indicators))
         try:
-            with open(rf'eqn/eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt', 'w') as f:
+            with open(eqn_path, 'w') as f:
                 f.write(S.sexpr())
                 info("Node equations are saved.")
         except:
             pdb.set_trace(header="Failed to save node eqns.")
     info("Solver is loaded.")
 
-    inp_vec:List[TImage] = []
-    label_vec:List[int] = []
+    samples_no_list:List[int] = []
+    sampled_imgs:List[TImage] = []
+    orig_preds:List[int] = []
     for sample_no in random_sample([*range(len(images))], k=num_procs):
+        info(f"sample {sample_no} is drawn.")
+        samples_no_list.append(sample_no)
         img:TImage = images[sample_no]
-        inp_vec.append(img) # type: ignore
-        label_vec.append(forward(weights_list, img))
+        sampled_imgs.append(img) # type: ignore
+        orig_preds.append(forward(weights_list, img))
     info(f"Sampling is completed with {num_procs} samples.")
     # data, target = next(iter(test_loader))
     # inp = spikegen.rate(data, num_steps=num_steps) # type: ignore
@@ -172,61 +178,84 @@ def run_test(cfg:CFG):
     # For each delta
     for delta in cfg.deltas:
         global check_sample
-        def check_sample(sample:Tuple[TImage, int]):
-            img, orig_pred = sample
-            # Input property
+        def check_sample(sample:Tuple[int, TImage, int]):
+            sample_no, img, orig_pred = sample
+            orig_neuron = (orig_pred, 0)
+            # Prior knowledge terms
             tx = time.time()
-            prop = []
+            input_neurons = product(range(layer_shapes[0][0]), range(layer_shapes[0][1]))
+            prior_knowledge = [[],[]]
+            for in_neuron in input_neurons:
+                spiketime_equality = (
+                    typecast(BoolRef,
+                             spike_times[in_neuron,0] == int(img[in_neuron])))
+                prior_knowledge[0].append(spiketime_equality)
+            out_neurons = product(range(layer_shapes[-1][0]), range(layer_shapes[-1][1]))
+            for out_neuron in out_neurons:
+                if out_neuron != orig_neuron:
+                    prior_knowledge[1].append(
+                        spike_times[out_neuron, len(n_layer_neurons)-1] >= spike_times[orig_neuron, len(n_layer_neurons)-1] + 1
+                    )
+            prior_knowledge = Implies(And(prior_knowledge[0]), And(prior_knowledge[1]))
             
-            max_delta_per_neuron = 1
+            # Input property terms
+            prop = [prior_knowledge]
+            # prop = []
+            max_delta_per_neuron = min(1, delta)
             delta_sum = Int("Delta_sum")
             input_neurons = product(range(layer_shapes[0][0]), range(layer_shapes[0][1]))
             for in_neuron in input_neurons:
-                neuron_spktime_delta = spike_times[in_neuron,0] - int(img[in_neuron])
+                neuron_spktime_delta = (
+                    typecast(ArithRef,
+                             Abs(spike_times[in_neuron,0] - int(img[in_neuron]))))
                 prop.append(neuron_spktime_delta <= max_delta_per_neuron)
                 delta_sum += neuron_spktime_delta
+                # prop.append(spike_times[in_neuron,0] == int(img[in_neuron]))
             prop.append(delta_sum <= delta)
             info(f"Inputs Property Done in {time.time() - tx} sec")
 
             # Output property
             tx = time.time()
             op = []
-            
-            orig_neuron = (orig_pred, 0)
             out_neurons = product(range(layer_shapes[-1][0]), range(layer_shapes[-1][1]))
             for out_neuron in out_neurons:
-                if out_neuron == orig_neuron:
-                    continue
-                op.append(
-                    spike_times[out_neuron, len(n_layer_neurons)-1] > spike_times[orig_neuron, len(n_layer_neurons)-1]
-                )
+                if out_neuron != orig_neuron:
+                    op.append(
+                        spike_times[out_neuron, len(n_layer_neurons)-1] >= spike_times[orig_neuron, len(n_layer_neurons)-1] + 1
+                    )
             op = Not(And(op))
             info(f'Output Property Done in {time.time() - tx} sec')
 
             tx = time.time()
             S = Solver()
-            S.from_file(f'eqn/eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt')
+            S.from_file(eqn_path)
             info(f'Network Encoding read in {time.time() - tx} sec')
-            S.add(op)
+            # S.add(op)
             S.add(prop)
             info(f'Total model ready in {time.time() - tx}')
 
             info('Query processing starts')
+            set_param(verbose=2)
+            # set_param("parallel.enable", True)
             tx = time.time()
             result = S.check()
             info(f'Checking done in time {time.time() - tx}')
             if result == sat:
-                info(f'Not robust for sample and delta={delta}')
+                info(f'Not robust for sample {sample_no} and delta={delta}')
             else:
-                info(f'Robust for sample and delta={delta}')
-            pdb.set_trace()
+                info(f'Robust for sample {sample_no} and delta={delta}')
+            # pdb.set_trace()
+            return result
         
-        samples = zip(inp_vec, label_vec)
+        samples = zip(samples_no_list, sampled_imgs, orig_preds)
         if mp:
             with Pool(num_procs) as pool:
                 pool.map(check_sample, samples)
-        for sample in samples:
-            check_sample(sample)
+                pool.close()
+                pool.join()
+        else:
+            for sample in samples:
+                check_sample(sample)
 
     info("")
 
