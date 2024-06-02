@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from collections import defaultdict
 from z3 import *
-from tqdm.auto import tqdm
 import time
 
 import matplotlib.pyplot as plt
@@ -16,10 +15,10 @@ import numpy as np
 import itertools
 
 batch_size = 128
-data_path = '../data/mnist/'
-location = '..'
-neurons_in_layers = [28*28, 10, 10]
-num_steps = 5
+data_path = '/data/mnist'
+location = 'C:\\Users\\soham\\PycharmProjects\\Z3py'
+neurons_in_layers = [28*28, 100, 10]
+num_steps = 10
 beta = 0.95
 dtype = torch.float
 
@@ -184,25 +183,24 @@ if __name__ == '__main__':
                 loss_hist.append(loss_val.item())
 
         #torch.save(net, f'/Models/model_{num_hidden}.pth')
-        torch.save(net.state_dict(), f'{location}/models/model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
+        torch.save(net, f'{location}\\Models\\model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
         print("Model Saved")
     else:
-        net_dict = torch.load(f'{location}/models/model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
-        net.load_state_dict(net_dict)
+        net = torch.load(f'{location}\\Models\\model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
         print('Model loaded')
 
     total = 0
     correct = 0
     test_batch_size = 1
     # drop_last switched to False to keep all samples
-    test_loader = DataLoader(mnist_train, batch_size=test_batch_size, shuffle=True, drop_last=False)
+    test_loader = DataLoader(mnist_test, batch_size=test_batch_size, shuffle=True, drop_last=False)
     test_log = True
     tt = []
     if test_log:
         with torch.no_grad():
             net.eval()
             c = 1
-            for data, targets in tqdm(test_loader):
+            for data, targets in test_loader:
                 t = time.time()
                 data = data
                 targets = targets
@@ -326,7 +324,7 @@ if __name__ == '__main__':
 
     S = Solver()
     S.add(node_eqn)
-    f = open(f'{location}/eqn/eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt', 'w')
+    f = open(f'{location}\\eqn\\eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt', 'w')
     f.write(S.sexpr())
     f.close()
     print('Equations Saved')

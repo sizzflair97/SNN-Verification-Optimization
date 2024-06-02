@@ -15,7 +15,7 @@ from z3 import *
 from collections import defaultdict
 import functools
 
-neurons_in_layers = [28*28, 100, 10]
+neurons_in_layers = [28*28, 50, 10]
 num_steps = 5
 data_path = '../data/mnist'
 delta = [1]
