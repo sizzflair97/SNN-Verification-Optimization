@@ -5,16 +5,17 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from snntorch import spikegen
+from multiprocessing import Pool
 
 from z3 import *
 from collections import defaultdict
 import functools
 
-neurons_in_layers = [28*28, 100, 10]
-num_steps = 10
-data_path = '/data/mnist'
+neurons_in_layers = [28*28, 50, 10]
+num_steps = 5
+data_path = '../data/mnist'
 delta = [1]
-location = 'C:\\Users\\soham\\PycharmProjects\\Z3py'
+location = '.'
 
 transform = transforms.Compose([
     transforms.Resize((28, 28)),
@@ -24,7 +25,7 @@ transform = transforms.Compose([
 
 
 print('Reading Model')
-net = torch.load(f'Models\\model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
+net = torch.load(f'Models/model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
 print('Model loaded')
 
 print('Loading data')
@@ -52,7 +53,7 @@ print(f'single input ran in {time.time()-tx} sec')
 
 # For each delta
 for dt in delta:
-
+    
     # Input property
     tx = time.time()
     s = [[] for i in range(num_steps)]
@@ -82,7 +83,7 @@ for dt in delta:
 
     tx = time.time()
     S = Solver()
-    S.from_file(f'{location}\\eqn\\eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt')
+    S.from_file(f'{location}/eqn/eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt')
     print(f'Network Encoding read in {time.time() - tx} sec')
     S.add(op + prop)
     print(f'Total model ready in {time.time() - tx}')

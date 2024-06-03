@@ -120,7 +120,7 @@ def prepare_weights() -> TWeightList:
     return weights_list
 
 def run_test(cfg:CFG):
-    log_name = f"{strftime('%m%d%H%M', localtime())}_{cfg.log_name}_{num_steps}_{'_'.join(str(l) for l in n_layer_neurons)}.log"
+    log_name = f"{strftime('%m%d%H%M', localtime())}_{cfg.log_name}_{num_steps}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"
     logging.basicConfig(filename="log/" + log_name, level=logging.INFO)
     info(cfg)
 

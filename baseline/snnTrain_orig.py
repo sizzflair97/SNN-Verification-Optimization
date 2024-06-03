@@ -15,10 +15,10 @@ import numpy as np
 import itertools
 
 batch_size = 128
-data_path = '/data/mnist'
-location = 'C:\\Users\\soham\\PycharmProjects\\Z3py'
-neurons_in_layers = [28*28, 100, 10]
-num_steps = 10
+data_path = '../data/mnist'
+location = '.'
+neurons_in_layers = [28*28, 50, 10]
+num_steps = 5
 beta = 0.95
 dtype = torch.float
 
@@ -183,10 +183,10 @@ if __name__ == '__main__':
                 loss_hist.append(loss_val.item())
 
         #torch.save(net, f'/Models/model_{num_hidden}.pth')
-        torch.save(net, f'{location}\\Models\\model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
+        torch.save(net, f'{location}/Models/model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
         print("Model Saved")
     else:
-        net = torch.load(f'{location}\\Models\\model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
+        net = torch.load(f'{location}/Models/model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
         print('Model loaded')
 
     total = 0
@@ -324,7 +324,7 @@ if __name__ == '__main__':
 
     S = Solver()
     S.add(node_eqn)
-    f = open(f'{location}\\eqn\\eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt', 'w')
+    f = open(f'{location}/eqn/eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt', 'w')
     f.write(S.sexpr())
     f.close()
     print('Equations Saved')
