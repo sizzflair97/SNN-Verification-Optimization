@@ -1,5 +1,5 @@
 numba
-torch --extra-index-url https://download.pytorch.org/whl/cu11x
+torch --index-url https://download.pytorch.org/whl/cu121
 snntorch
 torchvision
 tqdm

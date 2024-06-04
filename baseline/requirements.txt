@@ -55,3 +55,4 @@ typing_extensions==4.2.0
 urllib3==1.26.9
 wcwidth==0.2.5
 z3-solver==4.8.16.0
+python-mnist

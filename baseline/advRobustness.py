@@ -12,14 +12,9 @@ from multiprocessing import Pool
 from mnist import MNIST
 
 from z3 import *
+from mnist_net import *
 from collections import defaultdict
 import functools
-
-neurons_in_layers = [28*28, 20, 10]
-num_steps = 10
-data_path = '../data/mnist'
-delta = [1]
-location = '..'
 
 transform = transforms.Compose([
     transforms.Resize((28, 28)),
