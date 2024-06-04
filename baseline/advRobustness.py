@@ -22,6 +22,7 @@ transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0,), (1,))])
 
+print(f"neurons in layers {neurons_in_layers}, number of steps {num_steps}")
 
 print('Reading Model')
 net_dict = torch.load(f'{location}/models/model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
