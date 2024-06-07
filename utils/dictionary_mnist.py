@@ -18,6 +18,7 @@ num_epochs = 300
 train = False
 test = False
 load_expr = False
+save_expr = False
 threshold = 100
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")

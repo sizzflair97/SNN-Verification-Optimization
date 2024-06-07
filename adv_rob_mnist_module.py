@@ -1,4 +1,5 @@
 # %%
+from copy import deepcopy
 from multiprocessing import Pipe, Pool
 from random import sample as random_sample
 from random import seed
@@ -27,7 +28,6 @@ from utils.encoding_mnist import *
 #             transforms.ToTensor(),
 #             transforms.Normalize((0,), (1,))])
 
-eqn_path = f'eqn/eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt'
 
 def load_mnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
     # Parameter setting
@@ -142,21 +142,25 @@ def run_test(cfg:CFG):
     # spike_indicators = gen_spikes()
     spike_times = gen_spike_times()
     weights = gen_weights(weights_list)
-    if load_expr:
-        S.from_file(f'eqn/eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt')
-    else:
+    
+    # Load equations.
+    eqn_path = f'eqn/eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt'
+    if not load_expr or not os.path.isfile(eqn_path):
         node_eqns = gen_node_eqns(weights, spike_times)
         S.add(node_eqns)
         # if cfg.np_level == 1:
         #     node_eqns.extend(gen_dnp_v2(weights, spike_indicators, potentials))
         # elif cfg.np_level == 2:
         #     node_eqns.extend(gen_gnp(weights, spike_indicators))
-        try:
-            with open(eqn_path, 'w') as f:
-                f.write(S.sexpr())
-                info("Node equations are saved.")
-        except:
-            pdb.set_trace(header="Failed to save node eqns.")
+        if save_expr:
+            try:
+                with open(eqn_path, 'w') as f:
+                    f.write(S.sexpr())
+                    info("Node equations are saved.")
+            except:
+                pdb.set_trace(header="Failed to save node eqns.")
+    else:
+        S.from_file(eqn_path)
     info("Solver is loaded.")
 
     samples_no_list:List[int] = []
@@ -181,69 +185,76 @@ def run_test(cfg:CFG):
         def check_sample(sample:Tuple[int, TImage, int]):
             sample_no, img, orig_pred = sample
             orig_neuron = (orig_pred, 0)
-            # Prior knowledge terms
             tx = time.time()
-            input_neurons = product(range(layer_shapes[0][0]), range(layer_shapes[0][1]))
-            prior_knowledge = [[],[]]
-            for in_neuron in input_neurons:
-                spiketime_equality = (
-                    typecast(BoolRef,
-                             spike_times[in_neuron,0] == int(img[in_neuron])))
-                prior_knowledge[0].append(spiketime_equality)
-            out_neurons = product(range(layer_shapes[-1][0]), range(layer_shapes[-1][1]))
-            for out_neuron in out_neurons:
-                if out_neuron != orig_neuron:
-                    prior_knowledge[1].append(
-                        spike_times[out_neuron, len(n_layer_neurons)-1] >= spike_times[orig_neuron, len(n_layer_neurons)-1] + 1
-                    )
-            prior_knowledge = Implies(And(prior_knowledge[0]), And(prior_knowledge[1]))
+            # # Prior knowledge terms
+            # input_neurons = product(range(layer_shapes[0][0]), range(layer_shapes[0][1]))
+            # prior_knowledge = [[],[]]
+            # for in_neuron in input_neurons:
+            #     spiketime_equality = (
+            #         typecast(BoolRef,
+            #                  spike_times[in_neuron,0] == int(img[in_neuron])))
+            #     prior_knowledge[0].append(spiketime_equality)
+            # out_neurons = product(range(layer_shapes[-1][0]), range(layer_shapes[-1][1]))
+            # for out_neuron in out_neurons:
+            #     if out_neuron != orig_neuron:
+            #         prior_knowledge[1].append(
+            #             spike_times[out_neuron, len(n_layer_neurons)-1] >= spike_times[orig_neuron, len(n_layer_neurons)-1] + 1
+            #         )
+            # prior_knowledge = Implies(And(prior_knowledge[0]), And(prior_knowledge[1]))
             
-            # Input property terms
-            prop = [prior_knowledge]
-            # prop = []
-            max_delta_per_neuron = min(1, delta)
-            delta_sum = Int("Delta_sum")
+            # # Input property terms
+            # prop = [prior_knowledge]
+            prop = []
+            # max_delta_per_neuron = min(1, delta)
+            max_delta_per_neuron = delta
             input_neurons = product(range(layer_shapes[0][0]), range(layer_shapes[0][1]))
+            input_layer = 0
+            deltas_list = []
             for in_neuron in input_neurons:
                 neuron_spktime_delta = (
                     typecast(ArithRef,
-                             Abs(spike_times[in_neuron,0] - int(img[in_neuron]))))
+                             Abs(spike_times[in_neuron, input_layer] - int(img[in_neuron]))))
                 prop.append(neuron_spktime_delta <= max_delta_per_neuron)
-                delta_sum += neuron_spktime_delta
+                deltas_list.append(neuron_spktime_delta)
                 # prop.append(spike_times[in_neuron,0] == int(img[in_neuron]))
-            prop.append(delta_sum <= delta)
+            prop.append(Sum(deltas_list) <= delta)
             info(f"Inputs Property Done in {time.time() - tx} sec")
 
             # Output property
             tx = time.time()
             op = []
             out_neurons = product(range(layer_shapes[-1][0]), range(layer_shapes[-1][1]))
+            last_layer = len(n_layer_neurons)-1
             for out_neuron in out_neurons:
                 if out_neuron != orig_neuron:
+                    # It is equal to Not(spike_times[out_neuron, last_layer] >= spike_times[orig_neuron, last_layer]),
+                    # we are checking p and Not(q) and q = And(q1, q2, ..., qn)
+                    # so Not(q) is Or(Not(q1), Not(q2), ..., Not(qn))
                     op.append(
-                        spike_times[out_neuron, len(n_layer_neurons)-1] >= spike_times[orig_neuron, len(n_layer_neurons)-1] + 1
+                        spike_times[out_neuron, last_layer] < spike_times[orig_neuron, last_layer]
                     )
-            op = Not(And(op))
+            op = Or(op)
             info(f'Output Property Done in {time.time() - tx} sec')
 
             tx = time.time()
-            S = Solver()
-            S.from_file(eqn_path)
+            S_instance = deepcopy(S)
             info(f'Network Encoding read in {time.time() - tx} sec')
-            # S.add(op)
-            S.add(prop)
+            S_instance.add(op)
+            S_instance.add(prop)
             info(f'Total model ready in {time.time() - tx}')
 
             info('Query processing starts')
             set_param(verbose=2)
             # set_param("parallel.enable", True)
             tx = time.time()
-            result = S.check()
+            result = S_instance.check()
             info(f'Checking done in time {time.time() - tx}')
             if result == sat:
                 info(f'Not robust for sample {sample_no} and delta={delta}')
-            else:
+            elif result == unsat:
                 info(f'Robust for sample {sample_no} and delta={delta}')
+            else:
+                info(f'Unknown at sample {sample_no} for reason {S_instance.reason_unknown()}')
             # pdb.set_trace()
             return result
         
