@@ -66,13 +66,13 @@ def gen_node_eqns(weights:TWeight, spike_times:TSpikeTime) -> List[BoolRef|bool]
         for out_neuron_pos in tqdm(range(n_out_layer_neurons),
                                    desc="Generating node equations. Nodes"):
             out_neuron = (out_neuron_pos,0) # We only use position 0 in dimension 1 for layer output.
-            time_cumulated_potential:ArithRef = RealVal(0)
             flag = False
             # Does not include last step: [0,num_steps-1]
             for timestep in tqdm(range(out_layer, num_steps-1), desc="Timestep", leave=False):
+                time_cumulated_potential:ArithRef = RealVal(0)
                 for in_neuron in get_layer_neurons_iter(in_layer):
                     time_cumulated_potential += If(
-                        spike_times[in_neuron, in_layer] == (timestep-1),
+                        spike_times[in_neuron, in_layer] <= (timestep-1),
                         weights[in_neuron, out_neuron_pos, in_layer], 0)
                 over_threshold = time_cumulated_potential >= threshold
                 spike_condition = And(Not(flag), over_threshold)
