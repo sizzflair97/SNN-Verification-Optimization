@@ -10,12 +10,19 @@ from multiprocessing import Pool
 from z3 import *
 from collections import defaultdict
 import functools
+import logging
+from logging import getLogger
+from time import strftime, localtime
 
-neurons_in_layers = [28*28, 20, 10]
-num_steps = 10
+neurons_in_layers = [28*28, 10, 10]
+num_steps = 5
 data_path = '../data/mnist'
 delta = [1]
 location = '.'
+
+log_name = f"{strftime('%m%d%H%M', localtime())}_baseline_{num_steps}_{'_'.join(str(l) for l in neurons_in_layers)}_delta_{delta}.log"
+logging.basicConfig(filename=f"../log/{log_name}", level=logging.DEBUG)
+print = getLogger().debug
 
 transform = transforms.Compose([
     transforms.Resize((28, 28)),
@@ -94,7 +101,7 @@ def check_sample(sample_no:int):
     S = Solver()
     S.from_file(f'{location}/eqn/eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt')
     print(f'Network Encoding read in {time.time() - tx} sec')
-    S.add(op + prop)
+    S.add([Or(op),prop])
     print(f'Total model ready in {time.time() - tx}')
 
     print('Query processing starts')

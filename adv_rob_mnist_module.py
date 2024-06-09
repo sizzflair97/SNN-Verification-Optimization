@@ -48,14 +48,14 @@ def load_mnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
     Images = np.array(Images)
     for i in range(len(Labels)):
         if Labels[i] in cats:
-            images.append(np.floor((GrayLevels - Images[i].reshape(28, 28)) * num_steps / GrayLevels).astype(int))
+            images.append(np.floor((GrayLevels - Images[i].reshape(28, 28)) * (num_steps-1) / GrayLevels).astype(int))
             labels.append(cats.index(Labels[i]))
     Images, Labels = mndata.load_testing()
     Images = np.array(Images)
     for i in range(len(Labels)):
         if Labels[i] in cats:
             # images_test.append(TTT[i].reshape(28,28).astype(int))
-            images_test.append(np.floor((GrayLevels - Images[i].reshape(28, 28)) * num_steps / GrayLevels).astype(int))
+            images_test.append(np.floor((GrayLevels - Images[i].reshape(28, 28)) * (num_steps-1) / GrayLevels).astype(int))
             labels_test.append(cats.index(Labels[i]))
 
     del Images, Labels
@@ -76,7 +76,7 @@ def forward(weights_list:TWeightList, img:TImage):
     X = []
     for layer, neuron_of_layer in enumerate(n_layer_neurons[1:]):
         firingTime.append(np.asarray(np.zeros(neuron_of_layer)))
-        Spikes.append(np.asarray(np.zeros((layer_shapes[layer + 1][0], layer_shapes[layer + 1][1], num_steps + 1))))
+        Spikes.append(np.asarray(np.zeros((layer_shapes[layer + 1][0], layer_shapes[layer + 1][1], num_steps))))
         X.append(np.asarray(np.mgrid[0:layer_shapes[layer + 1][0], 0:layer_shapes[layer + 1][1]]))
     
     SpikeList = [SpikeImage] + Spikes
@@ -84,17 +84,20 @@ def forward(weights_list:TWeightList, img:TImage):
     SpikeImage[mgrid[0], mgrid[1], img] = 1
     for layer in range(len(n_layer_neurons)-1):
         Voltage = np.cumsum(np.tensordot(weights_list[layer], SpikeList[layer]), 1)
-        Voltage[:, num_steps] = threshold + 1
-        firingTime[layer] = np.argmax(Voltage > threshold, axis=1).astype(float)
-        firingTime[layer][firingTime[layer] > num_steps-1] = num_steps
+        Voltage[:, num_steps-1] = threshold + 1
+        firingTime[layer] = np.argmax(Voltage > threshold, axis=1).astype(float) + 1
+        # in layer 0, max time is num_steps-1, but in layer 1, max time is num_steps, so we clamp it.
+        firingTime[layer][firingTime[layer] > num_steps-1] = num_steps-1
         Spikes[layer][...] = 0
         Spikes[layer][X[layer][0], X[layer][1], firingTime[layer].reshape(n_layer_neurons[layer+1], 1).astype(int)] = 1 # All neurons spike only once.
+    
+    # print(np.max(firingTime))
     # minFiringTime = firingTime[len(n_layer_neurons)-1 - 1].min()
     # if minFiringTime == num_steps:
     #     V = np.argmax(Voltage[:, num_steps - 3])
     #     # V = 0
     # else:
-    V = int(np.argmin(firingTime[-1])) # acc is about 96.80%
+    V = int(np.argmin(firingTime[-1]))
     return V
 
 def prepare_weights() -> TWeightList:
@@ -134,7 +137,7 @@ def run_test(cfg:CFG):
     # mnist_test = datasets.MNIST(data_path, train=False, download=True, transform=transform)
     # test_loader = DataLoader(mnist_test, batch_size=1, shuffle=True, drop_last=True)
     
-    images, labels, images_test, labels_test = load_mnist()
+    images, *_ = load_mnist()
     
     info('Data is loaded')
     
@@ -186,52 +189,42 @@ def run_test(cfg:CFG):
             sample_no, img, orig_pred = sample
             orig_neuron = (orig_pred, 0)
             tx = time.time()
-            # # Prior knowledge terms
-            # input_neurons = product(range(layer_shapes[0][0]), range(layer_shapes[0][1]))
-            # prior_knowledge = [[],[]]
-            # for in_neuron in input_neurons:
-            #     spiketime_equality = (
-            #         typecast(BoolRef,
-            #                  spike_times[in_neuron,0] == int(img[in_neuron])))
-            #     prior_knowledge[0].append(spiketime_equality)
-            # out_neurons = product(range(layer_shapes[-1][0]), range(layer_shapes[-1][1]))
-            # for out_neuron in out_neurons:
-            #     if out_neuron != orig_neuron:
-            #         prior_knowledge[1].append(
-            #             spike_times[out_neuron, len(n_layer_neurons)-1] >= spike_times[orig_neuron, len(n_layer_neurons)-1] + 1
-            #         )
-            # prior_knowledge = Implies(And(prior_knowledge[0]), And(prior_knowledge[1]))
             
             # # Input property terms
-            # prop = [prior_knowledge]
             prop = []
             # max_delta_per_neuron = min(1, delta)
-            max_delta_per_neuron = delta
-            input_neurons = product(range(layer_shapes[0][0]), range(layer_shapes[0][1]))
+            # max_delta_per_neuron = delta
             input_layer = 0
             deltas_list = []
-            for in_neuron in input_neurons:
+            delta_pos = IntVal(0)
+            delta_neg = IntVal(0)
+            def relu(x): return If(x>0, x, 0)
+            for in_neuron in get_layer_neurons_iter(input_layer):
+                ## Try to avoid using abs, it makes z3 extremely slow.
+                # delta_pos += relu(spike_times[in_neuron, input_layer] - int(img[in_neuron]))
+                # delta_neg += relu(int(img[in_neuron]) - spike_times[in_neuron, input_layer])
                 neuron_spktime_delta = (
                     typecast(ArithRef,
                              Abs(spike_times[in_neuron, input_layer] - int(img[in_neuron]))))
-                prop.append(neuron_spktime_delta <= max_delta_per_neuron)
+                # prop.append(neuron_spktime_delta <= max_delta_per_neuron)
                 deltas_list.append(neuron_spktime_delta)
-                # prop.append(spike_times[in_neuron,0] == int(img[in_neuron]))
+                # prop.append(spike_times[in_neuron,input_layer] == int(img[in_neuron]))
+                # print(img[in_neuron], end = '\t')
+            # prop.append((delta_pos + delta_neg) <= delta)
             prop.append(Sum(deltas_list) <= delta)
             info(f"Inputs Property Done in {time.time() - tx} sec")
 
             # Output property
             tx = time.time()
             op = []
-            out_neurons = product(range(layer_shapes[-1][0]), range(layer_shapes[-1][1]))
             last_layer = len(n_layer_neurons)-1
-            for out_neuron in out_neurons:
+            for out_neuron in get_layer_neurons_iter(last_layer):
                 if out_neuron != orig_neuron:
                     # It is equal to Not(spike_times[out_neuron, last_layer] >= spike_times[orig_neuron, last_layer]),
                     # we are checking p and Not(q) and q = And(q1, q2, ..., qn)
                     # so Not(q) is Or(Not(q1), Not(q2), ..., Not(qn))
                     op.append(
-                        spike_times[out_neuron, last_layer] < spike_times[orig_neuron, last_layer]
+                        spike_times[out_neuron, last_layer] <= spike_times[orig_neuron, last_layer]
                     )
             op = Or(op)
             info(f'Output Property Done in {time.time() - tx} sec')

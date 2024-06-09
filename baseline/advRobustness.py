@@ -1,5 +1,5 @@
-import pdb
-import time
+import pdb, logging
+from time import strftime, localtime
 
 import numpy as np
 from snnTrain import Net
@@ -21,6 +21,12 @@ transform = transforms.Compose([
     transforms.Grayscale(),
     transforms.ToTensor(),
     transforms.Normalize((0,), (1,))])
+
+
+log_name = f"{strftime('%m%d%H%M', localtime())}_baseline_{num_steps}_{'_'.join(str(l) for l in neurons_in_layers)}_delta_{tuple(delta)}.log"
+logging.basicConfig(filename=f"../log/{log_name}", level=logging.INFO)
+stdout = print
+print = lambda x: logging.getLogger().info(x) or stdout(x)
 
 print(f"neurons in layers {neurons_in_layers}, number of steps {num_steps}")
 
@@ -96,7 +102,8 @@ def check_sample(sample_no:int):
     S = Solver()
     S.from_file(f'{location}/eqn/eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt')
     print(f'Network Encoding read in {time.time() - tx} sec')
-    S.add(op + prop)
+    S.add(Or(op))
+    S.add(prop)
     print(f'Total model ready in {time.time() - tx}')
 
     print('Query processing starts')
@@ -105,8 +112,10 @@ def check_sample(sample_no:int):
     print(f'Checking done in time {time.time() - tx}')
     if result == sat:
         print(f'Not robust for sample {sample_no} and delta={dt}')
+    elif result == unsat:
+        print(f'Robust for sample {sample_no} and delta={dt}')
     else:
-        print(f'Robust for sample and delta={dt}')
+        print(f'Unknown for sample {sample_no} and delta={dt} for reason {S.reason_unknown()}')
 
 # For each delta
 for dt in delta:

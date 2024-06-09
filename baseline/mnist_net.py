@@ -18,8 +18,8 @@ import itertools
 batch_size = 128
 data_path = '../data/mnist/'
 location = '..'
-neurons_in_layers = [28*28, 20, 10]
-num_steps = 10
+neurons_in_layers = [28*28, 10, 10]
+num_steps = 5
 beta = 0.95
 dtype = torch.float
 delta = [1]
