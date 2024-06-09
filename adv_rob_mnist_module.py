@@ -201,17 +201,17 @@ def run_test(cfg:CFG):
             def relu(x): return If(x>0, x, 0)
             for in_neuron in get_layer_neurons_iter(input_layer):
                 ## Try to avoid using abs, it makes z3 extremely slow.
-                # delta_pos += relu(spike_times[in_neuron, input_layer] - int(img[in_neuron]))
-                # delta_neg += relu(int(img[in_neuron]) - spike_times[in_neuron, input_layer])
-                neuron_spktime_delta = (
-                    typecast(ArithRef,
-                             Abs(spike_times[in_neuron, input_layer] - int(img[in_neuron]))))
+                delta_pos += relu(spike_times[in_neuron, input_layer] - int(img[in_neuron]))
+                delta_neg += relu(int(img[in_neuron]) - spike_times[in_neuron, input_layer])
+                # neuron_spktime_delta = (
+                #     typecast(ArithRef,
+                #              Abs(spike_times[in_neuron, input_layer] - int(img[in_neuron]))))
                 # prop.append(neuron_spktime_delta <= max_delta_per_neuron)
-                deltas_list.append(neuron_spktime_delta)
+                # deltas_list.append(neuron_spktime_delta)
                 # prop.append(spike_times[in_neuron,input_layer] == int(img[in_neuron]))
                 # print(img[in_neuron], end = '\t')
-            # prop.append((delta_pos + delta_neg) <= delta)
-            prop.append(Sum(deltas_list) <= delta)
+            prop.append((delta_pos + delta_neg) <= delta)
+            # prop.append(Sum(deltas_list) <= delta)
             info(f"Inputs Property Done in {time.time() - tx} sec")
 
             # Output property
