@@ -34,7 +34,7 @@ if __name__ == '__main__':
     # Load the network onto CUDA if available
     net = Net(neurons_in_layers, loss_value=beta)
 
-    load = False
+    load = True
     loss = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(net.parameters(), lr=5e-4, betas=(0.9, 0.999))
 

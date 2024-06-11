@@ -22,7 +22,7 @@ neurons_in_layers = [28*28, 10, 10]
 num_steps = 5
 beta = 0.95
 dtype = torch.float
-delta = [4]
+delta = [5]
 
 class Net(nn.Module):
     def __init__(self, layers=(2, 2, 2), loss_value=1.0):
