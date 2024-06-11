@@ -18,11 +18,11 @@ import itertools
 batch_size = 128
 data_path = '../data/mnist/'
 location = '..'
-neurons_in_layers = [28*28, 10, 10]
-num_steps = 5
+neurons_in_layers = [28*28, 20, 10]
+num_steps = 6
 beta = 0.95
 dtype = torch.float
-delta = [5]
+delta = [1]
 
 class Net(nn.Module):
     def __init__(self, layers=(2, 2, 2), loss_value=1.0):

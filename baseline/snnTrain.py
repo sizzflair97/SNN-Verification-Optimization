@@ -34,7 +34,7 @@ if __name__ == '__main__':
     # Load the network onto CUDA if available
     net = Net(neurons_in_layers, loss_value=beta)
 
-    load = True
+    load = False
     loss = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(net.parameters(), lr=5e-4, betas=(0.9, 0.999))
 
@@ -108,6 +108,8 @@ if __name__ == '__main__':
                 c += 1
 
         print(f"Total correctly classified test set images: {correct}/{total} in avg.time {sum(tt)/len(tt)}")
+    with open(f'{location}/models/model_accs.txt', 'a') as f:
+        f.write(f"Rate_{num_steps}_{neurons_in_layers}: {correct/total:.3f}\n")
     #=============================================
 
     test_inputs = 20
