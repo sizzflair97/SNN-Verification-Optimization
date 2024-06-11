@@ -7,7 +7,7 @@ import torch
 batch_size = 128
 location = '.'
 image_len = 28
-n_layer_neurons = (image_len*image_len, 10, 10) # [28*28, 100, 10] default
+n_layer_neurons = (image_len*image_len, 400, 10) # [28*28, 100, 10] default
 layer_shapes = ((image_len,image_len), (n_layer_neurons[-2], 1), (n_layer_neurons[-1], 1))
 beta = 1
 dtype = torch.float
@@ -16,7 +16,7 @@ data_path = 'data/mnist'
 delta = [1]
 num_epochs = 300
 train = False
-test = False
+test = True
 load_expr = False
 save_expr = False
 threshold = 100

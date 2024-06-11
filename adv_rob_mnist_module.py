@@ -119,7 +119,7 @@ def prepare_weights() -> TWeightList:
         if predicted == target:
             correct += 1
         pbar.desc = f"Acc {correct/i*100:.2f}, predicted {predicted}, target {target}"
-    info(f"Total correctly classified test set images: {correct}/{len(images)}")
+    info(f"Total correctly classified test set images: {correct/len(images)*100:.3f}")
     return weights_list
 
 def run_test(cfg:CFG):
@@ -237,7 +237,7 @@ def run_test(cfg:CFG):
             info(f'Total model ready in {time.time() - tx}')
 
             info('Query processing starts')
-            set_param(verbose=2)
+            # set_param(verbose=2)
             # set_param("parallel.enable", True)
             tx = time.time()
             result = S_instance.check()
