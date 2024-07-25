@@ -43,7 +43,7 @@ def gen_spike_times() -> TSpikeTime:
 
 def gen_weights(weights_list:TWeightList) -> TWeight:
     weights = typecast(TWeight, {})
-    print(weights_list[0].shape, weights_list[1].shape)
+    print(num_steps, weights_list[0].shape, weights_list[1].shape)
     for in_layer in range(len(n_layer_neurons)-1):
         layer_weight = weights_list[in_layer]
         out_layer = in_layer+1
