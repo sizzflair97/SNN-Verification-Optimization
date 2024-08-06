@@ -8,4 +8,4 @@ class CFG:
     #Delta-perturbation params
     num_samples:int = 15
     deltas:Tuple[int,...] = (1,2,3)
-    numpy_backend:bool = False
+    z3:bool = False

@@ -144,7 +144,7 @@ def run_test(cfg:CFG):
     
     info('Data is loaded')
     
-    if not cfg.numpy_backend:
+    if cfg.z3:
         S = Solver()
         # spike_indicators = gen_spikes()
         spike_times = gen_spike_times()
@@ -245,14 +245,14 @@ def run_test(cfg:CFG):
                 # set_param("parallel.enable", True)
                 tx = time.time()
                 result = S_instance.check()
-                info(f'Checking done in time {time.time() - tx}')
+                info(f"Checking done in time {time.time() - tx}")
                 if result == sat:
-                    info(f'Not robust for sample {sample_no} and delta={delta}')
+                    info(f"Not robust for sample {sample_no} and delta={delta}")
                 elif result == unsat:
-                    info(f'Robust for sample {sample_no} and delta={delta}')
+                    info(f"Robust for sample {sample_no} and delta={delta}")
                 else:
-                    info(f'Unknown at sample {sample_no} for reason {S_instance.reason_unknown()}')
-                # pdb.set_trace()
+                    info(f"Unknown at sample {sample_no} for reason {S_instance.reason_unknown()}")
+                info("")
                 return result
             
             samples = zip(samples_no_list, sampled_imgs, orig_preds)
@@ -266,16 +266,25 @@ def run_test(cfg:CFG):
                     check_sample(sample)
 
         info("")
-    else:            
+    else:
+        # Recursively find available adversarial attacks.
         def search_perts(img:TImage, delta:int, loc:int=0, pert:TImage|None=None) -> Generator[TImage,None,None]:
+            # Initial case
             if pert is None:
                 pert = np.zeros_like(img, dtype=img.dtype)
+                
+            # Last case
             if delta == 0:
                 yield img + pert
+            # Search must be terminated at the end of image.
             elif loc < n_layer_neurons[0]:
-                for delta_at_neuron in range(-delta, delta+1, 1):
+                loc_2d = (loc//layer_shapes[0][1], loc%layer_shapes[0][1])
+                orig_time = img[loc_2d]
+                # Clamp delta at current location
+                available_deltas = range(-min(orig_time, delta), min((num_steps-1)-orig_time, delta)+1)
+                for delta_at_neuron in available_deltas:
                     new_pert = pert.copy()
-                    new_pert[loc//layer_shapes[0][1], loc%layer_shapes[0][1]] += delta_at_neuron
+                    new_pert[loc_2d] += delta_at_neuron
                     yield from search_perts(img,
                                           delta-abs(delta_at_neuron),
                                           loc+1,
@@ -314,12 +323,12 @@ def run_test(cfg:CFG):
                     if np.any(last_layer_spk_times[not_orig_mask] <= last_layer_spk_times[orig_pred]):
                         sat_flag = True
                         break
-                info(f'Checking done in time {time.time() - tx}')
+                info(f"Checking done in time {time.time() - tx}")
                 if sat_flag:
-                    info(f'Not robust for sample {sample_no} and delta={delta}')
+                    info(f"Not robust for sample {sample_no} and delta={delta}")
                 elif sat_flag == False:
-                    info(f'Robust for sample {sample_no} and delta={delta}')
-                # pdb.set_trace()
+                    info(f"Robust for sample {sample_no} and delta={delta}")
+                info("")
                 return sat_flag
             
             samples = zip(samples_no_list, sampled_imgs, orig_preds)
