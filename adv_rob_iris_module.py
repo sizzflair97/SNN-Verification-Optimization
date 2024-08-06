@@ -1,192 +1,260 @@
 # %%
+from copy import deepcopy
 from multiprocessing import Pipe, Pool
-import functools, time, logging, json
+from random import sample as random_sample
+from random import seed
+import time, logging, typing
 from time import localtime, strftime
-from sklearn import datasets
-from snntorch import spikegen
-from snntorch import functional as SF
+from typing import Any
+
+from sklearn.datasets import load_iris as load_iris_raw
 import numpy as np
-import torch
-import torch.nn as nn
-import snntorch as snn
 from tqdm.auto import tqdm
 from z3 import *
-from collections import defaultdict
-from utils import *
 from utils.dictionary_iris import *
 from utils.encoding_iris import *
-from utils import IrisNet as Net
+from utils import *
+# from utils import MnistNet as Net
 
-def prepare_net(iris_data:np.ndarray, iris_targets:np.ndarray) -> Net:
-    loss_hist = []
-    seq = np.random.permutation(len(iris_targets))
-    iris_data = iris_data[seq]
-    iris_targets = iris_targets[seq]
+# transform = transforms.Compose([
+#             transforms.Resize((28, 28)),
+#             transforms.Grayscale(),
+#             transforms.ToTensor(),
+#             transforms.Normalize((0,), (1,))])
+
+
+def load_iris() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
+    # Parameter setting
+    cats = [*range(10)]
+
+    # General variables
+    inputs_list = []  # To keep training images
+    labels_list = []  # To keep training labels
+    test_inputs_list = []  # To keep test images
+    test_labels_list = []  # To keep test labels
+
+    iris = load_iris_raw()
+    raw_data_max = np.quantile(iris.data, 0.95)  # which is np.max(iris.data)
+
+    raw_inputs, raw_labels = iris.data, iris.target # type: ignore
+    raw_inputs = np.array(raw_inputs)
+    for i in range(len(raw_labels)):
+        if raw_labels[i] in cats:
+            inputs_list.append(np.floor((raw_data_max - raw_inputs[i].reshape(n_layer_neurons[0], 1)) * (num_steps-1) / raw_data_max).astype(int))
+            labels_list.append(cats.index(raw_labels[i]))
+
+    raw_inputs, raw_labels = iris.data, iris.target # type: ignore
+    raw_inputs = np.array(raw_inputs)
+    for i in range(len(raw_labels)):
+        if raw_labels[i] in cats:
+            # images_test.append(TTT[i].reshape(28,28).astype(int))
+            test_inputs_list.append(np.floor((raw_data_max - raw_inputs[i].reshape(n_layer_neurons[0], 1)) * (num_steps-1) / raw_data_max).astype(int))
+            test_labels_list.append(cats.index(raw_labels[i]))
+
+    #images contain values within [0,(num_steps-1)]
+    inputs = typing.cast(TImageBatch, np.asarray(inputs_list))
+    labels = typing.cast(TLabelBatch, np.asarray(labels_list))
+    inputs_test = typing.cast(TImageBatch, np.asarray(test_inputs_list))
+    labels_test = typing.cast(TLabelBatch, np.asarray(test_labels_list))
     
+    return inputs, labels, inputs_test, labels_test
+
+mgrid = np.mgrid[0:layer_shapes[0][0], 0:layer_shapes[0][1]]
+def forward(weights_list:TWeightList, input:TImage):
+    SpikeImage = np.zeros((layer_shapes[0][0],layer_shapes[0][1],(num_steps-1)+1))
+    firingTime = []
+    Spikes = []
+    X = []
+    for layer, neuron_of_layer in enumerate(n_layer_neurons[1:]):
+        firingTime.append(np.asarray(np.zeros(neuron_of_layer)))
+        Spikes.append(np.asarray(np.zeros((layer_shapes[layer + 1][0], layer_shapes[layer + 1][1], (num_steps-1)))))
+        X.append(np.asarray(np.mgrid[0:layer_shapes[layer + 1][0], 0:layer_shapes[layer + 1][1]]))
+    
+    SpikeList = [SpikeImage] + Spikes
+    
+    SpikeImage[mgrid[0], mgrid[1], input] = 1
+    for layer in range(len(n_layer_neurons)-1):
+        Voltage = np.cumsum(np.tensordot(weights_list[layer], SpikeList[layer]), 1)
+        Voltage[:, (num_steps-1)-1] = threshold + 1
+        firingTime[layer] = np.argmax(Voltage > threshold, axis=1).astype(float) + 1
+        # in layer 0, max time is (num_steps-1)-1, but in layer 1, max time is (num_steps-1), so we clamp it.
+        firingTime[layer][firingTime[layer] > (num_steps-1)-1] = (num_steps-1)-1
+        Spikes[layer][...] = 0
+        Spikes[layer][X[layer][0], X[layer][1], firingTime[layer].reshape(n_layer_neurons[layer+1], 1).astype(int)] = 1 # All neurons spike only once.
+    
+    # print(np.max(firingTime))
+    # minFiringTime = firingTime[len(n_layer_neurons)-1 - 1].min()
+    # if minFiringTime == (num_steps-1):
+    #     V = np.argmax(Voltage[:, (num_steps-1) - 3])
+    #     # V = 0
+    # else:
+    V = int(np.argmin(firingTime[-1]))
+    return V
+
+def prepare_weights() -> TWeightList:
     if train:
-        net = Net()
-        optimizer = torch.optim.Adam(net.parameters(), lr=2e-3, betas=(0.9, 0.999))
-        loss = SF.mse_count_loss(correct_rate=0.8, incorrect_rate=0.2) # type: ignore
-        encoding_func = spikegen.rate
-
-        # Outer training loop
-        for epoch in range(num_epochs):
-            iter_counter = 0
-
-            # Minibatch training loop
-            for number in (pbar:=tqdm(range(len(iris_targets)))):
-                data = torch.tensor(iris_data[number], dtype=torch.float)
-                targets = torch.tensor(iris_targets[number], dtype=torch.long)
-
-                # make spike trains
-                data_spike:Tensor = encoding_func(data, num_steps=num_steps) # type: ignore # for latency encoding
-                # data_spike = encoding_func(data, num_steps=num_steps) # type: ignore # for rate encoding
-
-                # forward pass
-                net.train()
-                spk_rec, mem_rec = net(data_spike.view(num_steps, -1))
-
-                # initialize the loss & sum over time
-                loss_val = loss(spk_rec[:,None,:], targets[None])
-                # loss_val = torch.zeros((1), dtype=torch.float)
-                # for step in range(num_steps):
-                #     loss_val += loss(mem_rec[-1][step], targets[None])
-
-                # Gradient calculation + weight update
-                optimizer.zero_grad()
-                loss_val.backward()
-                optimizer.step()
-                
-                # Store loss history for future plotting
-                loss_hist.append(loss_val.item())
-
-                try:
-                    pbar.desc = (f"Epoch {epoch}, Iteration {iter_counter} "+
-                                 f"LogLoss {-float('inf') if loss_hist[-1]==0 else math.log(loss_hist[-1]):.3f}, MeanSpk {net.mean_spks:.2f}")
-                except ValueError:
-                    print(loss_hist[-1])
-                iter_counter += 1
-            
-            info((net.fc2.weight@net.fc1.weight)*((num_steps+1)*beta**num_steps-beta**(num_steps+1)+1)/(1-beta)**2)
-        # info("Saving model.pth")
-        # torch.save(net, file_name)
+        raise NotImplementedError("The model must be trained from S4NN.")
     else:
-        net = torch.load(file_name)
-        info("Model loaded")
+        # weights_list = np.load("mnist_weights_best.npy", allow_pickle=True)
+        model_dir_path = f"models/{(num_steps)}_{'_'.join(str(i) for i in n_layer_neurons)}"
+        weights_list = []
+        for layer in range(len(n_layer_neurons) - 1):
+            weights_list.append(np.load(os.path.join(model_dir_path, f"weights_{layer}.npy")))
+        info('Model loaded')
 
-    acc = 0
-    test_data, test_targets = torch.tensor(iris_data, dtype=torch.float), torch.tensor(iris_targets)
-    with torch.no_grad():
-        for i, data in (pbar:=tqdm(enumerate(test_data))):
-            spike_data:Tensor = encoding_func(data, num_steps=num_steps) # type: ignore
-            spk_rec, mem_rec = net(spike_data.view(num_steps, -1))
-            idx = torch.sum(spk_rec, dim=0).argmax() # rate encoding prediction
-            # print(idx, test_targets[i], flush=True)
-            pbar.desc = f"{idx}, {test_targets[i]}"
-            if idx == test_targets[i]:
-                acc += 1
-        info(f'Accuracy of the model : {100*acc/len(test_data):.2f}%\n')
-    return net
+    if not test: return weights_list
+    inputs, labels, inputs_test, labels_test = load_iris()
+    correct = 0
+    for i, (image, target) in (pbar:=tqdm(enumerate(zip(inputs,labels), start=1), total=len(inputs))):
+        predicted = forward(weights_list, image)
+        if predicted == target:
+            correct += 1
+        pbar.desc = f"Acc {correct/i*100:.2f}, predicted {predicted}, target {target}"
+    info(f"Total correctly classified test set images: {correct/len(inputs)*100:.3f}")
+    return weights_list
 
 def run_test(cfg:CFG):
-    log_name = f"{strftime('%m%d%H%M', localtime())}_{cfg.log_name}.log"
+    log_name = f"{strftime('%m%d%H%M', localtime())}_{cfg.log_name}_{(num_steps-1)}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"
     logging.basicConfig(filename="log/" + log_name, level=logging.INFO)
     info(cfg)
 
+    seed(cfg.seed)
     np.random.seed(cfg.seed)
-    torch.manual_seed(cfg.seed)
-    torch.use_deterministic_algorithms(True)
+    # torch.manual_seed(cfg.seed)
+    # torch.use_deterministic_algorithms(True)
 
-    #Load dsets
-    iris = datasets.load_iris()
-    iris_data = iris.data / iris.data.max(axis=0) # type: ignore
-    iris_targets = iris.target # type: ignore
-    if shuffle:
-        assert len(iris_data) == len(iris_data)
-        perm = np.random.permutation(len(iris_data))
-        iris_data, iris_targets = iris_data[perm], iris_targets[perm]
+    weights_list = prepare_weights()
     
-    #Load or train snn iris net
-    net = prepare_net(iris_data, iris_targets)
+    # mnist_test = datasets.MNIST(data_path, train=False, download=True, transform=transform)
+    # test_loader = DataLoader(mnist_test, batch_size=1, shuffle=True, drop_last=True)
     
-    # take a random input and make it into a spike train
-    spike_indicators = gen_spikes()
-    potentials = gen_potentials()
-    weights = gen_weights([net.fc1.weight, net.fc2.weight])
-    pot_init = gen_initial_potentials(potentials)
-
-    #Node eqns
-    assign:List[BoolRef] = []
-    node_eqn:List[Union[BoolRef,Literal[False]]] = []
-    #In neuron pruning, indicators and potentials are modified.
-    if cfg.np_level == 1:
-        node_eqn.extend(gen_dnp_v2(weights, spike_indicators, potentials))
-    elif cfg.np_level == 2:
-        node_eqn.extend(gen_gnp(weights, spike_indicators))
-    elif cfg.np_level == 3:
-        node_eqn.extend(gen_gnp_v2(weights, spike_indicators))
+    images, *_ = load_iris()
     
-    node_eqn.extend(gen_node_eqns(weights, spike_indicators, potentials))
+    info('Data is loaded')
+    
+    S = Solver()
+    # spike_indicators = gen_spikes()
+    spike_times = gen_spike_times()
+    print(weights_list)
+    weights = gen_weights(weights_list)
+    
+    # Load equations.
+    eqn_path = f'eqn/eqn_{(num_steps-1)}_{"_".join([str(i) for i in n_layer_neurons])}.txt'
+    if not load_expr or not os.path.isfile(eqn_path):
+        node_eqns = gen_node_eqns(weights, spike_times)
+        S.add(node_eqns)
+        # if cfg.np_level == 1:
+        #     node_eqns.extend(gen_dnp_v2(weights, spike_indicators, potentials))
+        # elif cfg.np_level == 2:
+        #     node_eqns.extend(gen_gnp(weights, spike_indicators))
+        if save_expr:
+            try:
+                with open(eqn_path, 'w') as f:
+                    f.write(S.sexpr())
+                    info("Node equations are saved.")
+            except:
+                pdb.set_trace(header="Failed to save node eqns.")
+    else:
+        S.from_file(eqn_path)
+    info("Solver is loaded.")
 
-    #Randomly draw samples
-    samples = iris_data[np.random.choice(range(len(iris_data)), cfg.num_samples)] # type: ignore
-    info(samples)
+    samples_no_list:List[int] = []
+    sampled_imgs:List[TImage] = []
+    orig_preds:List[int] = []
+    for sample_no in random_sample([*range(len(images))], k=num_procs):
+        info(f"sample {sample_no} is drawn.")
+        samples_no_list.append(sample_no)
+        img:TImage = images[sample_no]
+        sampled_imgs.append(img) # type: ignore
+        orig_preds.append(forward(weights_list, img))
+    info(f"Sampling is completed with {num_procs} samples.")
+    # data, target = next(iter(test_loader))
+    # inp = spikegen.rate(data, (num_steps-1)=(num_steps-1)) # type: ignore
+    # op = net.forward(inp.view((num_steps-1), -1))[0]
+    # label = int(torch.cat(op).sum(dim=0).argmax())
+    # info(f'single input ran in {time.time()-tx} sec')
 
-    delta_v = {d: 0 for d in cfg.deltas}
+    # For each delta
     for delta in cfg.deltas:
-        avt = 0
-        
         global check_sample
-        def check_sample(sample:Tuple[int, Tensor]) -> Tuple[float, int, str]:
-            sample_no:int; sample_spike:Tensor;
-            sample_no, sample_spike = sample
-            res, label_var, control = forward_net(sample_spike.view(num_steps, -1), spike_indicators, assign+node_eqn+pot_init)
-            if res in {'unsat','unknown'}:
-                info(f'Could not find model at delta = {delta}, sample = {sample_no}')
-                return -1, delta, res
-            del res
-            
-            control = control.model()
-            prop = gen_delta_reuse(cfg, sample_spike, spike_indicators, potentials, delta, control)
-            # Output property
-            #tx = time.time()
-            op = []
-            label = control[label_var].as_long() # type: ignore
-            
-            S = Solver()
-            intend_sum = sum([2 * spike_indicators[(label, 2, timestep)] for timestep in range(1, num_steps+1)])
-            for t in range(num_output):
-                if t != label:
-                    op.append(
-                        Not(intend_sum > sum([2 * spike_indicators[(t, 2, timestep)] for timestep in range(1, num_steps+1)]))
-                    )
-            S.add(assign+node_eqn+pot_init+prop+op)
-            
+        def check_sample(sample:Tuple[int, TImage, int]):
+            sample_no, img, orig_pred = sample
+            orig_neuron = (orig_pred, 0)
             tx = time.time()
-            res:Literal["sat", "unsat", "unknown"] = str(S.check()) # type: ignore
-            del S
-            tss = time.time()-tx
-            info(f'Completed for delta = {delta}, sample = {sample_no} in {tss} sec as {res}')
-            return tss, delta, res
+            
+            # # Input property terms
+            prop = []
+            # max_delta_per_neuron = min(1, delta)
+            # max_delta_per_neuron = delta
+            input_layer = 0
+            deltas_list = []
+            delta_pos = IntVal(0)
+            delta_neg = IntVal(0)
+            def relu(x): return If(x>0, x, 0)
+            for in_neuron in get_layer_neurons_iter(input_layer):
+                ## Try to avoid using abs, it makes z3 extremely slow.
+                delta_pos += relu(spike_times[in_neuron, input_layer] - int(img[in_neuron]))
+                delta_neg += relu(int(img[in_neuron]) - spike_times[in_neuron, input_layer])
+                # neuron_spktime_delta = (
+                #     typecast(ArithRef,
+                #              Abs(spike_times[in_neuron, input_layer] - int(img[in_neuron]))))
+                # prop.append(neuron_spktime_delta <= max_delta_per_neuron)
+                # deltas_list.append(neuron_spktime_delta)
+                # prop.append(spike_times[in_neuron,input_layer] == int(img[in_neuron]))
+                # print(img[in_neuron], end = '\t')
+            prop.append((delta_pos + delta_neg) <= delta)
+            # prop.append(Sum(deltas_list) <= delta)
+            info(f"Inputs Property Done in {time.time() - tx} sec")
+
+            # Output property
+            tx = time.time()
+            op = []
+            last_layer = len(n_layer_neurons)-1
+            for out_neuron in get_layer_neurons_iter(last_layer):
+                if out_neuron != orig_neuron:
+                    # It is equal to Not(spike_times[out_neuron, last_layer] >= spike_times[orig_neuron, last_layer]),
+                    # we are checking p and Not(q) and q = And(q1, q2, ..., qn)
+                    # so Not(q) is Or(Not(q1), Not(q2), ..., Not(qn))
+                    op.append(
+                        spike_times[out_neuron, last_layer] <= spike_times[orig_neuron, last_layer]
+                    )
+            op = Or(op)
+            info(f'Output Property Done in {time.time() - tx} sec')
+
+            tx = time.time()
+            S_instance = deepcopy(S)
+            info(f'Network Encoding read in {time.time() - tx} sec')
+            S_instance.add(op)
+            S_instance.add(prop)
+            info(f'Total model ready in {time.time() - tx}')
+
+            info('Query processing starts')
+            # set_param(verbose=2)
+            # set_param("parallel.enable", True)
+            tx = time.time()
+            result = S_instance.check()
+            info(f'Checking done in time {time.time() - tx}')
+            if result == sat:
+                info(f'Not robust for sample {sample_no} and delta={delta}')
+            elif result == unsat:
+                info(f'Robust for sample {sample_no} and delta={delta}')
+            else:
+                info(f'Unknown at sample {sample_no} for reason {S_instance.reason_unknown()}')
+            # pdb.set_trace()
+            return result
         
-        sample_spks = [spikegen.rate(torch.tensor(sample, dtype=torch.float), num_steps=num_steps) # type: ignore
-                       for sample in samples]
-        
+        samples = zip(samples_no_list, sampled_imgs, orig_preds)
         if mp:
-            with Pool(processes=num_procs) as pool:
-                tss_lst = pool.map(check_sample, enumerate(sample_spks))
-            for tss, delta, res in tss_lst:
-                avt += tss
-                delta_v[delta] += 1 if res == "unsat" else 0
-            avt /= len(sample_spks)
+            with Pool(num_procs) as pool:
+                pool.map(check_sample, samples)
+                pool.close()
+                pool.join()
         else:
-            for sample_no, sample_spike in enumerate(sample_spks):
-                tss, delta, res = check_sample((sample_no, sample_spike))
-                avt = (avt*sample_no + tss)/(sample_no+1)
-                delta_v[delta] += 1 if res == "unsat" else 0
-        info(f'Completed for delta = {delta} with {delta_v[delta]} in avg time {avt} sec')
-        del check_sample
+            for sample in samples:
+                check_sample(sample)
 
-    print()
+    info("")
 
 
+
+# %%
