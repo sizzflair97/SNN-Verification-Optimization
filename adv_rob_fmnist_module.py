@@ -7,10 +7,10 @@ import time, logging, typing
 from time import localtime, strftime
 from typing import Any, Generator
 
-from mnist import MNIST
 # from snntorch import spikegen
 # from snntorch import functional as SF
 import numpy as np
+from torchvision.datasets import FashionMNIST
 # import torch
 # import torch.nn as nn
 # import snntorch as snn
@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 #             transforms.Normalize((0,), (1,))])
 
 
-def load_mnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
+def load_fmnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
     # Parameter setting
     GrayLevels = 255  # Image GrayLevels
     cats = [*range(10)]
@@ -42,22 +42,22 @@ def load_mnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
     images_test = []  # To keep test images
     labels_test = []  # To keep test labels
 
-    # loading MNIST dataset
-    mndata = MNIST('data/mnist/MNIST/raw/')
+    # loading FMNIST dataset
+    fmdata = FashionMNIST('./data/', train=True, download=True)
     # mndata.gz = False
 
-    Images, Labels = mndata.load_training()
+    Images, Labels = fmdata.data.numpy(), fmdata.targets.numpy()
     Images = np.array(Images)
     for i in range(len(Labels)):
         if Labels[i] in cats:
-            images.append(np.floor((GrayLevels - Images[i].reshape(28, 28)) * (num_steps-1) / GrayLevels).astype(int))
+            images.append(np.floor((GrayLevels - Images[i].reshape(28, 28).astype(int)) * (num_steps-1) / GrayLevels).astype(int))
             labels.append(cats.index(Labels[i]))
-    Images, Labels = mndata.load_testing()
+    Images, Labels = fmdata.data.numpy(), fmdata.targets.numpy()
     Images = np.array(Images)
     for i in range(len(Labels)):
         if Labels[i] in cats:
             # images_test.append(TTT[i].reshape(28,28).astype(int))
-            images_test.append(np.floor((GrayLevels - Images[i].reshape(28, 28)) * (num_steps-1) / GrayLevels).astype(int))
+            images_test.append(np.floor((GrayLevels - Images[i].reshape(28, 28).astype(int)) * (num_steps-1) / GrayLevels).astype(int))
             labels_test.append(cats.index(Labels[i]))
 
     del Images, Labels
@@ -75,7 +75,7 @@ def forward(weights_list:TWeightList,
             img:TImage,
             layers_firing_time_return:list[np.ndarray]|None=None):
     # Return by reference at firing_time_ptr.
-    SpikeImage = np.zeros((28,28,num_steps+1))
+    SpikeImage = np.zeros((28,28,num_steps))
     firingTime:list[np.ndarray] = []
     Spikes = []
     X = []
@@ -162,7 +162,7 @@ def backward(weights_list:TWeightList,
     return weights_list
 
 def test_weights(weights_list:TWeightList) -> None:
-    images, labels, *_ = load_mnist()
+    images, labels, *_ = load_fmnist()
     correct = 0
     for i, (image, target) in (pbar:=tqdm(enumerate(zip(images,labels), start=1), total=len(images))):
         predicted = forward(weights_list, image)
@@ -176,7 +176,7 @@ def prepare_weights() -> TWeightList:
         raise NotImplementedError("The model must be trained from S4NN.")
     else:
         # weights_list = np.load("mnist_weights_best.npy", allow_pickle=True)
-        model_dir_path = f"models/{num_steps}_{'_'.join(str(i) for i in n_layer_neurons)}"
+        model_dir_path = f"models/fm_{num_steps}_{'_'.join(str(i) for i in n_layer_neurons)}"
         weights_list = []
         for layer in range(len(n_layer_neurons) - 1):
             weights_list.append(np.load(os.path.join(model_dir_path, f"weights_{layer}.npy")))
@@ -201,7 +201,7 @@ def run_test(cfg:CFG):
     # mnist_test = datasets.MNIST(data_path, train=False, download=True, transform=transform)
     # test_loader = DataLoader(mnist_test, batch_size=1, shuffle=True, drop_last=True)
     
-    images, labels, *_ = load_mnist()
+    images, labels, *_ = load_fmnist()
     
     info('Data is loaded')
     
@@ -212,7 +212,7 @@ def run_test(cfg:CFG):
         weights = gen_weights(weights_list)
         
         # Load equations.
-        eqn_path = f'eqn/eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt'
+        eqn_path = f'eqn/fm_eqn_{num_steps}_{"_".join([str(i) for i in n_layer_neurons])}.txt'
         if not load_expr or not os.path.isfile(eqn_path):
             node_eqns = gen_node_eqns(weights, spike_times)
             S.add(node_eqns)
@@ -240,7 +240,7 @@ def run_test(cfg:CFG):
             img:TImage = images[sample_no]
             sampled_imgs.append(img) # type: ignore
             orig_preds.append(forward(weights_list, img))
-        info(f"Sampling is completed with {num_procs} samples.")
+        info(f"Sampling is completed with {cfg.num_samples} samples.")
         # data, target = next(iter(test_loader))
         # inp = spikegen.rate(data, num_steps=num_steps) # type: ignore
         # op = net.forward(inp.view(num_steps, -1))[0]
@@ -363,13 +363,13 @@ def run_test(cfg:CFG):
             sampled_imgs.append(img)
             sampled_labels.append(label)
             orig_preds.append(forward(weights_list, img))
-        info(f"Sampling is completed with {num_procs} samples.")
+        info(f"Sampling is completed with {cfg.num_samples} samples.")
 
         # For each delta
         for delta in cfg.deltas:
             global check_sample_non_smt
             def check_sample_non_smt(sample:Tuple[int, TImage, int, int],
-                                     adv_train:bool=False,
+                                     adv_train:bool=False, # Disabled because of model performance decreasing.
                                      weights_list:TWeightList=weights_list):
                 sample_no, img, label, orig_pred = sample
                 
@@ -380,7 +380,8 @@ def run_test(cfg:CFG):
                 n_counterexamples = 0
                 for pertd_img in search_perts(img, delta):
                     pert_pred = forward(weights_list, pertd_img, spk_times:=[])
-                    adv_spk_times.append(spk_times)
+                    if adv_train:
+                        adv_spk_times.append(spk_times)
                     last_layer_spk_times = spk_times[-1]
                     not_orig_mask = [x for x in range(n_layer_neurons[-1]) if x!=pert_pred]
                     # It is equal to Not(spike_times[out_neuron, last_layer] >= spike_times[orig_neuron, last_layer]),
@@ -388,9 +389,8 @@ def run_test(cfg:CFG):
                     # so Not(q) is Or(Not(q1), Not(q2), ..., Not(qn))
                     if np.any(last_layer_spk_times[not_orig_mask] <= last_layer_spk_times[orig_pred]):
                         sat_flag = True
-                        pdb.set_trace()
-                        # if not adv_train:
-                        #     break
+                        if not adv_train:
+                            break
                         n_counterexamples += 1
                 info(f"Checking done in time {time.time() - tx}")
                 if sat_flag:
@@ -406,9 +406,10 @@ def run_test(cfg:CFG):
                         info(f"Completed adversarial training. Checking robustness again.")
                         check_sample_non_smt(new_sample, adv_train=False, weights_list=updated_weights_list)
                     else:
-                        info(f"Not robust for sample {sample_no} and delta={delta}")
+                        info(f"Not robust for sample {sample_no} and delta={delta}.")
+                    
                 elif sat_flag == False:
-                    info(f"Robust for sample {sample_no} and delta={delta}.")
+                    info(f"Robust for sample {sample_no} and delta={delta}")
                 info("")
                 return sat_flag
             

@@ -19,4 +19,34 @@ Rate_5_[784, 18, 10]: 0.635
 Rate_5_[784, 16, 10]: 0.664
 Rate_5_[784, 14, 10]: 0.644
 Rate_5_[784, 12, 10]: 0.626
-Rate_5_[784, 10, 10]: 0.526
+Rate_5_[784, 10, 10]: 0.525
+
+CIFAR
+Rate_25_(3072, 512, 10): 0.438
+
+
+FMNIST
+FMNIST_Rate_5_[784, 10, 10]: 0.427
+FMNIST_Rate_5_[784, 12, 10]: 0.401
+FMNIST_Rate_5_[784, 14, 10]: 0.445
+FMNIST_Rate_5_[784, 16, 10]: 0.440
+FMNIST_Rate_5_[784, 18, 10]: 0.457
+FMNIST_Rate_5_[784, 20, 10]: 0.411
+FMNIST_Rate_6_[784, 20, 10]: 0.391
+FMNIST_Rate_7_[784, 20, 10]: 0.454
+FMNIST_Rate_8_[784, 20, 10]: 0.470
+
+FMNIST_Rate_6_[784, 10, 10]: 0.488
+FMNIST_Rate_7_[784, 10, 10]: 0.432
+FMNIST_Rate_8_[784, 10, 10]: 0.472
+
+
+FMNIST_Temporal_5_[784, 10, 10]: 0.40382
+FMNIST_Temporal_5_[784, 12, 10]: 0.39678
+FMNIST_Temporal_5_[784, 14, 10]: 0.50072
+FMNIST_Temporal_5_[784, 16, 10]: 0.52485
+FMNIST_Temporal_5_[784, 18, 10]: 0.52857
+FMNIST_Temporal_5_[784, 20, 10]: 0.43615
+FMNIST_Temporal_6_[784, 20, 10]: 
+FMNIST_Temporal_7_[784, 20, 10]: 
+FMNIST_Temporal_8_[784, 20, 10]: 

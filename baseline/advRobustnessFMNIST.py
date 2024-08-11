@@ -23,7 +23,7 @@ transform = transforms.Compose([
     transforms.Normalize((0,), (1,))])
 
 
-log_name = f"{strftime('%m%d%H%M', localtime())}_mnist_baseline_z3_{num_steps}_{'_'.join(str(l) for l in neurons_in_layers)}_delta_{tuple(delta)}.log"
+log_name = f"{strftime('%m%d%H%M', localtime())}_fmnist_baseline_z3_{num_steps}_{'_'.join(str(l) for l in neurons_in_layers)}_delta_{tuple(delta)}.log"
 logging.basicConfig(filename=f"../log/{log_name}", level=logging.INFO)
 stdout = print
 print = lambda x: logging.getLogger().info(x) or stdout(x)
@@ -31,14 +31,14 @@ print = lambda x: logging.getLogger().info(x) or stdout(x)
 print(f"neurons in layers {neurons_in_layers}, number of steps {num_steps}")
 
 print('Reading Model')
-net_dict = torch.load(f'{location}/models/model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
+net_dict = torch.load(f'{location}/models/fm_model_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.pth')
 net = Net(layers=neurons_in_layers)
 net.load_state_dict(net_dict)
 print('Model loaded')
 
 print('Loading data')
-mnist_train = datasets.MNIST(data_path, train=True, download=True, transform=transform)
-mnist_test = datasets.MNIST(data_path, train=False, download=True, transform=transform)
+mnist_train = datasets.FashionMNIST(data_path, train=True, download=True, transform=transform)
+mnist_test = datasets.FashionMNIST(data_path, train=False, download=True, transform=transform)
 test_loader = DataLoader(mnist_test, batch_size=1, shuffle=True, drop_last=True)
 print('data loaded')
 
@@ -102,7 +102,7 @@ def check_sample(sample_no:int):
 
     tx = time.time()
     S = Solver()
-    S.from_file(f'{location}/eqn/eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt')
+    S.from_file(f'{location}/eqn/fm_eqn_{num_steps}_{"_".join([str(i) for i in neurons_in_layers])}.txt')
     print(f'Network Encoding read in {time.time() - tx} sec')
     S.add(Or(op))
     S.add(prop)

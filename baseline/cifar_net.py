@@ -16,10 +16,10 @@ import numpy as np
 import itertools
 
 batch_size = 128
-data_path = '../data/mnist/'
+data_path = '../data'
 location = '..'
-neurons_in_layers = [28*28, 20, 10]
-num_steps = 8
+neurons_in_layers = (3*32*32, 512, 10)
+num_steps = 25
 beta = 0.95
 dtype = torch.float
 delta = [1]
@@ -34,7 +34,7 @@ class Net(nn.Module):
         self.leaky_layers = nn.ModuleList()
 
         for layer_num in range(len(layers)-1):
-            self.fc_layers.append(nn.Linear(layers[layer_num], layers[layer_num+1], bias=False))
+            self.fc_layers.append(nn.Linear(layers[layer_num], layers[layer_num+1], bias=True))
             self.leaky_layers.append(snn.Leaky(beta=loss_value))
 
     def merge(self, layer_no, neuron_list):
