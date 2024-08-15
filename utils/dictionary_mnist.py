@@ -7,7 +7,7 @@ import torch
 batch_size = 128
 location = '.'
 image_len = 28
-n_layer_neurons = (image_len*image_len, 10, 10) # [28*28, 100, 10] default
+n_layer_neurons = (image_len*image_len, 18, 10) # [28*28, 100, 10] default
 layer_shapes = ((image_len,image_len), (n_layer_neurons[-2], 1), (n_layer_neurons[-1], 1))
 beta = 1
 dtype = torch.float
@@ -26,7 +26,7 @@ lr = [.2, .2]  # The learning rate of hidden and ouput neurons
 lamda = [0.000001, 0.000001]  # The regularization penalty for hidden and ouput neurons
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-mp = False #
+mp = True #
 num_procs:int = 14
 
 #Code Function typing

@@ -190,6 +190,7 @@ def run_test(cfg:CFG):
     log_name = f"{cfg.log_name}_{num_steps}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"
     logging.basicConfig(filename="log/" + log_name, level=logging.INFO)
     info(cfg)
+    info(log_name)
 
     seed(cfg.seed)
     np.random.seed(cfg.seed)

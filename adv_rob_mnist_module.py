@@ -11,6 +11,8 @@ from mnist import MNIST
 # from snntorch import spikegen
 # from snntorch import functional as SF
 import numpy as np
+import cupy as cp
+
 # import torch
 # import torch.nn as nn
 # import snntorch as snn
@@ -30,6 +32,8 @@ import matplotlib.pyplot as plt
 #             transforms.ToTensor(),
 #             transforms.Normalize((0,), (1,))])
 
+# cp.cuda.Device(0).use()
+# np = cp
 
 def load_mnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
     # Parameter setting
@@ -340,7 +344,7 @@ def run_test(cfg:CFG):
             # Search must be terminated at the end of image.
             elif loc < n_layer_neurons[0]:
                 loc_2d = (loc//layer_shapes[0][1], loc%layer_shapes[0][1])
-                orig_time = img[loc_2d]
+                orig_time = int(img[loc_2d])
                 # Clamp delta at current location
                 available_deltas = range(-min(orig_time, delta), min((num_steps-1)-orig_time, delta)+1)
                 for delta_at_neuron in available_deltas:
@@ -388,9 +392,8 @@ def run_test(cfg:CFG):
                     # so Not(q) is Or(Not(q1), Not(q2), ..., Not(qn))
                     if np.any(last_layer_spk_times[not_orig_mask] <= last_layer_spk_times[orig_pred]):
                         sat_flag = True
-                        pdb.set_trace()
-                        # if not adv_train:
-                        #     break
+                        if not adv_train:
+                            break
                         n_counterexamples += 1
                 info(f"Checking done in time {time.time() - tx}")
                 if sat_flag:
