@@ -1,5 +1,5 @@
 # Towards Efficient Formal Verification of Spiking Neural Networks
-Implemented with python=3.12. Further informations are provided in requirements.txt
+Implemented with python==3.12. Further informations are provided in requirements.txt
 
 ## Files
 Baseline is from https://github.com/Soham-Banerjee/SMT-Encoding-for-Spiking-Neural-Network.
