@@ -1,111 +1,126 @@
-from torch import Tensor, nn
+import os
+from typing import Any, LiteralString
+from collections.abc import Callable, Generator, Iterable
+from tqdm.auto import tqdm
 from .dictionary_mnist import *
-import snntorch as snn
-import torch
+from .debug import info
 
-class MnistNet(nn.Module):
-    def __init__(self, layers=(2, 2, 2), loss_value=1.0):
-        super().__init__()
+mgrid = np.mgrid[0:28, 0:28]
+def forward(weights_list:TWeightList,
+            img:TImage,
+            layers_firing_time_return:list[np.ndarray[Any, np.dtype[np.float_]]]|None = None) -> int:
+    # Return by reference at firing_time_ptr.
+    SpikeImage = np.zeros((28,28,num_steps+1))
+    firingTime:list[np.ndarray[Any, np.dtype[np.float_]]] = []
+    Spikes:list[np.ndarray[Any, np.dtype[np.float_]]] = []
+    X = []
+    for layer, neuron_of_layer in enumerate(n_layer_neurons[1:]):
+        firingTime.append(np.asarray(np.zeros(neuron_of_layer)))
+        Spikes.append(np.asarray(np.zeros((layer_shapes[layer + 1][0], layer_shapes[layer + 1][1], num_steps))))
+        X.append(np.asarray(np.mgrid[0:layer_shapes[layer + 1][0], 0:layer_shapes[layer + 1][1]]))
+    
+    SpikeList = [SpikeImage] + Spikes
+    
+    SpikeImage[mgrid[0], mgrid[1], img] = 1
+    for layer in range(len(n_layer_neurons)-1):
+        Voltage = np.cumsum(np.tensordot(weights_list[layer], SpikeList[layer]), 1)
+        Voltage[:, num_steps-1] = threshold + 1
+        firingTime[layer] = np.argmax(Voltage > threshold, axis=1).astype(float) + 1
+        # in layer 0, max time is num_steps-1, but in layer 1, max time is num_steps, so we clamp it.
+        firingTime[layer][firingTime[layer] > num_steps-1] = num_steps-1
+        Spikes[layer][...] = 0
+        Spikes[layer][X[layer][0], X[layer][1], firingTime[layer].reshape(n_layer_neurons[layer+1], 1).astype(int)] = 1 # All neurons spike only once.
+    
+    V = int(np.argmin(firingTime[-1]))
+    if layers_firing_time_return is not None:
+        layers_firing_time_return[:] = firingTime[:]
+    return V
 
-        # Initialize layers
-        self.layer_count = layers
-        self.fc_layers = nn.ModuleList()
-        self.leaky_layers = nn.ModuleList()
+gamma = 2
+target = np.zeros((n_layer_neurons[-1],))
+def backward(weights_list:TWeightList,
+             layers_firing_time:list[np.ndarray[Any, np.dtype[np.float_]]],
+             image:TImage,
+             label:int) -> TWeightList:
+    weights_list = [x.copy() for x in weights_list]
+    global target
+    # Computing the relative target firing times
+    min_firing = min(layers_firing_time[-1])
+    if min_firing == num_steps - 1:
+        target[:] = min_firing
+        target[label] = min_firing - gamma
+        target = target.astype(int)
+    else:
+        target[:] = layers_firing_time[-1][:]
+        to_change = (layers_firing_time[-1] - min_firing) < gamma
+        target[to_change] = min(min_firing + gamma, num_steps - 1)
+        target[label] = min_firing
+    
+    # Backward path
+    layer = len(n_layer_neurons) - 2  # Output layer
+    
+    delta_o = (target - layers_firing_time[layer]) / (num_steps-1)  # Error in the ouput layer
 
-        for layer_num in range(len(layers)-1):
-            self.fc_layers.append(nn.Linear(layers[layer_num], layers[layer_num+1], bias=False))
-            self.leaky_layers.append(snn.Leaky(beta=loss_value))
+    # Gradient normalization
+    norm = np.linalg.norm(delta_o)
+    if (norm != 0):
+        delta_o = delta_o / norm
 
-    def merge(self, layer_no, neuron_list):
-        n = layer_no - 1
-        weights1, weights2 = self.layers[n][0].weight.data, self.layers[n+1][0].weight.data.T
+    # Updating hidden-output weights
+    hasFired_o = layers_firing_time[layer - 1] < layers_firing_time[layer][:,
+                                            np.newaxis]  # To find which hidden neurons has fired before the ouput neurons
+    weights_list[layer][:, :, 0] -= (delta_o[:, np.newaxis] * hasFired_o * lr[layer])  # Update hidden-ouput weights
+    weights_list[layer] -= lr[layer] * lamda[layer] * weights_list[layer]  # Weight regularization
 
-        merged_input_weights = []
-        merged_output_weights = []
+    # Backpropagating error to hidden neurons
+    delta_h = (np.multiply(delta_o[:, np.newaxis] * hasFired_o, weights_list[layer][:, :, 0])).sum(
+        axis=0)  # Backpropagated errors from ouput layer to hidden layer
 
-        new_weights1 = []
-        new_weights2 = []
+    layer = len(n_layer_neurons) - 3  # Hidden layer
+    
+    # Gradient normalization
+    norm = np.linalg.norm(delta_h)
+    if (norm != 0):
+        delta_h = delta_h / norm
+    # Updating input-hidden weights
+    hasFired_h = image < layers_firing_time[layer][:, np.newaxis,
+                                        np.newaxis]  # To find which input neurons has fired before the hidden neurons
+    weights_list[layer] -= lr[layer] * delta_h[:, np.newaxis, np.newaxis] * hasFired_h  # Update input-hidden weights
+    weights_list[layer] -= lr[layer] * lamda[layer] * weights_list[layer]  # Weight regularization
+    
+    return weights_list
 
-        for i in range(len(weights1)):
-            if i in neuron_list:
-                merged_input_weights.append(weights1[i])
-            else:
-                new_weights1.append(weights1[i])
 
-        for i in range(len(weights2)):
-            if i in neuron_list:
-                merged_output_weights.append(weights2[i])
-            else:
-                new_weights2.append(weights2[i])
+datafunc = Callable[[], tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]]
+sample_typing = tuple[np.ndarray[tuple[Literal[28],Literal[28]], np.dtype[np.int_]], int]
 
-        if len(self.layers[n][1].beta.shape) == 0:
-            new_thresh = self.layers[n][1].beta
-        else:
-            new_thresh = []
-            merge_calc = []
+def test_weights(weights_list:TWeightList,
+                 load_data_func:datafunc) -> None:
+    images, labels, *_ = load_data_func()
+    correct = 0
+    pbar:Iterable[sample_typing] = tqdm(zip(images,labels), total=len(images))
+    for i, (image, target) in enumerate(pbar, start=1):
+        predicted = forward(weights_list, image)
+        if predicted == target:
+            correct += 1
+        pbar.desc = f"Acc {correct/i*100:.2f}, predicted {predicted}, target {target}"
+    info(f"Total correctly classified test set images: {correct/len(images)*100:.3f}")
 
-            for i in range(self.layers[n][1].beta.shape[0]):
-                if i in neuron_list:
-                    merge_calc.append(self.layers[n][1].beta[i])
-                else:
-                    new_thresh.append(self.layers[n][1].beta[i])
 
-            new_thresh.append(np.sum(merge_calc) / len(merge_calc))
-            new_thresh = torch.tensor(new_thresh)
 
-        new_weights1.append(np.sum(merged_input_weights) / len(merged_input_weights))
-        new_weights2.append(np.sum(merged_output_weights))
+def prepare_weights(subtype:Literal["mnist", "fmnist"],load_data_func:datafunc|None = None) -> TWeightList:
+    if train:
+        raise NotImplementedError("The model must be trained from S4NN.")
+    else:
+        subtype_prefix = [] if subtype == "mnist" else ["fm"]
+        model_dir_path = "models/" + "_".join(subtype_prefix + [f"{num_steps}", *(str(i) for i in n_layer_neurons)])
+        f"models/fm_{num_steps}_{'_'.join(str(i) for i in n_layer_neurons)}"
+        weights_list:TWeightList = []
+        for layer in range(len(n_layer_neurons) - 1):
+            weights_list.append(np.load(os.path.join(model_dir_path, f"weights_{layer}.npy")))
+        info('Model loaded')
 
-        layer_count = self.layer_count
-        layer_count[layer_no] -= (len(neuron_list)-1)
-
-        new_net = Net(layer_count)
-        for i in range(len(self.layers)-1):
-            if i != n and i != n+1:
-                new_net.layers[i] = self.layers[i]
-            else:
-                new_net.layers[i][0].weight.data = torch.stack(new_weights1)
-                new_net.layers[i+1][0].weight.data = torch.stack(new_weights2).T
-                new_net.layers[i][1].beta = new_thresh
-
-        return new_net
-
-    # def forward(self, x, return_all=False) -> Union[Tuple[List[Tensor], List[Tensor]], Tuple[Tensor, Tensor]]:
-    def forward(self, x, return_all=False) -> Tuple[List[List[Tensor]], List[List[Tensor]]]:
-
-        # Initialize hidden states at t=0
-        mem_list = [
-            layer.init_leaky() for layer in self.leaky_layers
-        ]
-
-        list_of_spikes:List[List[Tensor]] = []
-        list_of_potentials:List[List[Tensor]] = []
-        last_spikes:List[Tensor] = []
-        last_pot:List[Tensor] = []
-        for step in range(num_steps):
-            input_spikes = x[step]
-
-            output_spikes = []
-            output_potentials = []
-
-            for num, (layer, leak) in enumerate(zip(self.fc_layers, self.leaky_layers)):
-                cur = layer(input_spikes)
-                spk, mem_list[num] = leak(cur, mem_list[num])
-
-                output_spikes.append(spk)
-                output_potentials.append(mem_list[num])
-                input_spikes = cur
-
-            last_spikes.append(output_spikes[-1])
-            last_pot.append(output_potentials[-1])
-
-            list_of_spikes.append(output_spikes)
-            list_of_potentials.append(output_potentials)
-        return list_of_spikes, list_of_potentials
-        # if return_all:
-        #     return list_of_spikes, list_of_potentials
-        # else:
-        #     return last_spikes, last_pot
-
-    def extract_last_spikes(self, list_of_spikes:List[List[Tensor]])->List[Tensor]:
-        return [spikes_of_a_step[-1] for spikes_of_a_step in list_of_spikes]
+    if test:
+        assert load_data_func is not None, "Data loading function must be provided for testing."
+        test_weights(weights_list, load_data_func)
+    return weights_list

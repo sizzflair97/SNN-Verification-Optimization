@@ -11,19 +11,8 @@ from typing import cast as typecast
 from collections import defaultdict
 from .dictionary_mnist import *
 from .config import CFG
-from .mnist_net import MnistNet as Net
-from .debug_utils import info
+from .debug import info
 import pdb
-
-# def gen_spikes() -> TSpike:
-#     spike_indicators = typecast(TSpike, {})
-#     for timestep in tqdm(range(1, num_steps+1), desc="Generating spikes"):
-#         for layer, n_layer_neuron in enumerate(n_layer_neurons):
-#             layer_neurons = product(range(layer_shapes[layer][0]), range(layer_shapes[layer][1]))
-#             for layer_neuron in layer_neurons:
-#                 spike_indicators[layer_neuron, layer, timestep] = Bool(f'bSpk_{layer_neuron}_{layer}_{timestep}')
-#     info("Spikes are generated.")
-#     return spike_indicators
 
 def get_layer_neurons_iter(layer:int):
     return product(range(layer_shapes[layer][0]), range(layer_shapes[layer][1]))

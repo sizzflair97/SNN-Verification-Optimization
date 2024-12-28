@@ -4,7 +4,7 @@ from z3 import *
 from typing import List
 from typing import cast as typecast
 from .dictionary_iris import *
-from .debug_utils import info
+from .debug import info
 import pdb
 
 # def gen_spikes() -> TSpike:

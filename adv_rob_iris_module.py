@@ -1,12 +1,10 @@
 # %%
 from copy import deepcopy
-from multiprocessing import Pipe, Pool
+from multiprocessing import Pool
 from random import sample as random_sample
 from random import seed
 import time, logging, typing
 from time import localtime, strftime
-from typing import Any
-
 from sklearn.datasets import load_iris as load_iris_raw
 import numpy as np
 from tqdm.auto import tqdm
@@ -14,16 +12,8 @@ from z3 import *
 from utils.dictionary_iris import *
 from utils.encoding_iris import *
 from utils import *
-# from utils import MnistNet as Net
 
-# transform = transforms.Compose([
-#             transforms.Resize((28, 28)),
-#             transforms.Grayscale(),
-#             transforms.ToTensor(),
-#             transforms.Normalize((0,), (1,))])
-
-
-def load_iris() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
+def load_iris() -> tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
     # Parameter setting
     cats = [*range(10)]
 
@@ -82,12 +72,6 @@ def forward(weights_list:TWeightList, input:TImage):
         Spikes[layer][...] = 0
         Spikes[layer][X[layer][0], X[layer][1], firingTime[layer].reshape(n_layer_neurons[layer+1], 1).astype(int)] = 1 # All neurons spike only once.
     
-    # print(np.max(firingTime))
-    # minFiringTime = firingTime[len(n_layer_neurons)-1 - 1].min()
-    # if minFiringTime == (num_steps-1):
-    #     V = np.argmax(Voltage[:, (num_steps-1) - 3])
-    #     # V = 0
-    # else:
     V = int(np.argmin(firingTime[-1]))
     return V
 
@@ -254,7 +238,3 @@ def run_test(cfg:CFG):
                 check_sample(sample)
 
     info("")
-
-
-
-# %%

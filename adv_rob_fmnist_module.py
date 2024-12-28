@@ -1,37 +1,20 @@
-# %%
 from copy import deepcopy
-from multiprocessing import Pipe, Pool
+from multiprocessing import Pool
 from random import sample as random_sample
 from random import seed
 import time, logging, typing
-from time import localtime, strftime
-from typing import Any, Generator
-
-# from snntorch import spikegen
-# from snntorch import functional as SF
 import numpy as np
-from torchvision.datasets import FashionMNIST
-# import torch
-# import torch.nn as nn
-# import snntorch as snn
-from tqdm.auto import tqdm
+from collections.abc import Generator
 from z3 import *
-# from collections import defaultdict
 from utils.dictionary_mnist import *
 from utils.encoding_mnist import *
-from utils.config import *
-from utils.etc import *
-from utils.debug_utils import *
-import matplotlib.pyplot as plt
+from utils.config import CFG
+from utils.debug import info
+from utils.mnist_net import forward, backward, test_weights, prepare_weights
 
-# transform = transforms.Compose([
-#             transforms.Resize((28, 28)),
-#             transforms.Grayscale(),
-#             transforms.ToTensor(),
-#             transforms.Normalize((0,), (1,))])
+from torchvision.datasets import FashionMNIST
 
-
-def load_fmnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
+def load_fmnist() -> tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
     # Parameter setting
     GrayLevels = 255  # Image GrayLevels
     cats = [*range(10)]
@@ -44,7 +27,6 @@ def load_fmnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
 
     # loading FMNIST dataset
     fmdata = FashionMNIST('./data/', train=True, download=True)
-    # mndata.gz = False
 
     Images, Labels = fmdata.data.numpy(), fmdata.targets.numpy()
     Images = np.array(Images)
@@ -70,122 +52,6 @@ def load_fmnist() -> Tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
     
     return images, labels, images_test, labels_test
 
-mgrid = np.mgrid[0:28, 0:28]
-def forward(weights_list:TWeightList,
-            img:TImage,
-            layers_firing_time_return:list[np.ndarray]|None=None):
-    # Return by reference at firing_time_ptr.
-    SpikeImage = np.zeros((28,28,num_steps))
-    firingTime:list[np.ndarray] = []
-    Spikes = []
-    X = []
-    for layer, neuron_of_layer in enumerate(n_layer_neurons[1:]):
-        firingTime.append(np.asarray(np.zeros(neuron_of_layer)))
-        Spikes.append(np.asarray(np.zeros((layer_shapes[layer + 1][0], layer_shapes[layer + 1][1], num_steps))))
-        X.append(np.asarray(np.mgrid[0:layer_shapes[layer + 1][0], 0:layer_shapes[layer + 1][1]]))
-    
-    SpikeList = [SpikeImage] + Spikes
-    
-    SpikeImage[mgrid[0], mgrid[1], img] = 1
-    for layer in range(len(n_layer_neurons)-1):
-        Voltage = np.cumsum(np.tensordot(weights_list[layer], SpikeList[layer]), 1)
-        Voltage[:, num_steps-1] = threshold + 1
-        firingTime[layer] = np.argmax(Voltage > threshold, axis=1).astype(float) + 1
-        # in layer 0, max time is num_steps-1, but in layer 1, max time is num_steps, so we clamp it.
-        firingTime[layer][firingTime[layer] > num_steps-1] = num_steps-1
-        Spikes[layer][...] = 0
-        Spikes[layer][X[layer][0], X[layer][1], firingTime[layer].reshape(n_layer_neurons[layer+1], 1).astype(int)] = 1 # All neurons spike only once.
-    
-    # print(np.max(firingTime))
-    # minFiringTime = firingTime[len(n_layer_neurons)-1 - 1].min()
-    # if minFiringTime == num_steps:
-    #     V = np.argmax(Voltage[:, num_steps - 3])
-    #     # V = 0
-    # else:
-    V = int(np.argmin(firingTime[-1]))
-    if layers_firing_time_return is not None:
-        layers_firing_time_return[:] = firingTime[:]
-    return V
-
-gamma = 2
-target = np.zeros((n_layer_neurons[-1],))
-def backward(weights_list:TWeightList,
-             layers_firing_time:list[np.ndarray],
-             image:TImage,
-             label:int):
-    weights_list = [x.copy() for x in weights_list]
-    global target
-    # Computing the relative target firing times
-    min_firing = min(layers_firing_time[-1])
-    if min_firing == num_steps - 1:
-        target[:] = min_firing
-        target[label] = min_firing - gamma
-        target = target.astype(int)
-    else:
-        target[:] = layers_firing_time[-1][:]
-        to_change = (layers_firing_time[-1] - min_firing) < gamma
-        target[to_change] = min(min_firing + gamma, num_steps - 1)
-        target[label] = min_firing
-    
-    # Backward path
-    layer = len(n_layer_neurons) - 2  # Output layer
-    
-    delta_o = (target - layers_firing_time[layer]) / (num_steps-1)  # Error in the ouput layer
-
-    # Gradient normalization
-    norm = np.linalg.norm(delta_o)
-    if (norm != 0):
-        delta_o = delta_o / norm
-
-    # Updating hidden-output weights
-    hasFired_o = layers_firing_time[layer - 1] < layers_firing_time[layer][:,
-                                            np.newaxis]  # To find which hidden neurons has fired before the ouput neurons
-    weights_list[layer][:, :, 0] -= (delta_o[:, np.newaxis] * hasFired_o * lr[layer])  # Update hidden-ouput weights
-    weights_list[layer] -= lr[layer] * lamda[layer] * weights_list[layer]  # Weight regularization
-
-    # Backpropagating error to hidden neurons
-    delta_h = (np.multiply(delta_o[:, np.newaxis] * hasFired_o, weights_list[layer][:, :, 0])).sum(
-        axis=0)  # Backpropagated errors from ouput layer to hidden layer
-
-    layer = len(n_layer_neurons) - 3  # Hidden layer
-    
-    # Gradient normalization
-    norm = np.linalg.norm(delta_h)
-    if (norm != 0):
-        delta_h = delta_h / norm
-    # Updating input-hidden weights
-    hasFired_h = image < layers_firing_time[layer][:, np.newaxis,
-                                        np.newaxis]  # To find which input neurons has fired before the hidden neurons
-    weights_list[layer] -= lr[layer] * delta_h[:, np.newaxis, np.newaxis] * hasFired_h  # Update input-hidden weights
-    weights_list[layer] -= lr[layer] * lamda[layer] * weights_list[layer]  # Weight regularization
-    
-    return weights_list
-
-def test_weights(weights_list:TWeightList) -> None:
-    images, labels, *_ = load_fmnist()
-    correct = 0
-    for i, (image, target) in (pbar:=tqdm(enumerate(zip(images,labels), start=1), total=len(images))):
-        predicted = forward(weights_list, image)
-        if predicted == target:
-            correct += 1
-        pbar.desc = f"Acc {correct/i*100:.2f}, predicted {predicted}, target {target}"
-    info(f"Total correctly classified test set images: {correct/len(images)*100:.3f}")
-
-def prepare_weights() -> TWeightList:
-    if train:
-        raise NotImplementedError("The model must be trained from S4NN.")
-    else:
-        # weights_list = np.load("mnist_weights_best.npy", allow_pickle=True)
-        model_dir_path = f"models/fm_{num_steps}_{'_'.join(str(i) for i in n_layer_neurons)}"
-        weights_list = []
-        for layer in range(len(n_layer_neurons) - 1):
-            weights_list.append(np.load(os.path.join(model_dir_path, f"weights_{layer}.npy")))
-        info('Model loaded')
-
-    if test:
-        test_weights(weights_list)
-    return weights_list
-
 def run_test(cfg:CFG):
     log_name = f"{cfg.log_name}_{num_steps}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"
     logging.basicConfig(filename="log/" + log_name, level=logging.INFO)
@@ -197,10 +63,7 @@ def run_test(cfg:CFG):
     # torch.manual_seed(cfg.seed)
     # torch.use_deterministic_algorithms(True)
 
-    weights_list = prepare_weights()
-    
-    # mnist_test = datasets.MNIST(data_path, train=False, download=True, transform=transform)
-    # test_loader = DataLoader(mnist_test, batch_size=1, shuffle=True, drop_last=True)
+    weights_list = prepare_weights("fmnist", load_data_func=load_fmnist)
     
     images, labels, *_ = load_fmnist()
     
@@ -208,7 +71,6 @@ def run_test(cfg:CFG):
     
     if cfg.z3:
         S = Solver()
-        # spike_indicators = gen_spikes()
         spike_times = gen_spike_times()
         weights = gen_weights(weights_list)
         
@@ -217,10 +79,6 @@ def run_test(cfg:CFG):
         if not load_expr or not os.path.isfile(eqn_path):
             node_eqns = gen_node_eqns(weights, spike_times)
             S.add(node_eqns)
-            # if cfg.np_level == 1:
-            #     node_eqns.extend(gen_dnp_v2(weights, spike_indicators, potentials))
-            # elif cfg.np_level == 2:
-            #     node_eqns.extend(gen_gnp(weights, spike_indicators))
             if save_expr:
                 try:
                     with open(eqn_path, 'w') as f:
@@ -242,26 +100,18 @@ def run_test(cfg:CFG):
             sampled_imgs.append(img) # type: ignore
             orig_preds.append(forward(weights_list, img))
         info(f"Sampling is completed with {cfg.num_samples} samples.")
-        # data, target = next(iter(test_loader))
-        # inp = spikegen.rate(data, num_steps=num_steps) # type: ignore
-        # op = net.forward(inp.view(num_steps, -1))[0]
-        # label = int(torch.cat(op).sum(dim=0).argmax())
-        # info(f'single input ran in {time.time()-tx} sec')
 
         # For each delta
         for delta in cfg.deltas:
             global check_sample
-            def check_sample(sample:Tuple[int, TImage, int]):
+            def check_sample(sample:tuple[int, TImage, int]):
                 sample_no, img, orig_pred = sample
                 orig_neuron = (orig_pred, 0)
                 tx = time.time()
                 
-                # # Input property terms
+                # Input property terms
                 prop = []
-                # max_delta_per_neuron = min(1, delta)
-                # max_delta_per_neuron = delta
                 input_layer = 0
-                deltas_list = []
                 delta_pos = IntVal(0)
                 delta_neg = IntVal(0)
                 def relu(x): return If(x>0, x, 0)
@@ -269,15 +119,7 @@ def run_test(cfg:CFG):
                     ## Try to avoid using abs, it makes z3 extremely slow.
                     delta_pos += relu(spike_times[in_neuron, input_layer] - int(img[in_neuron]))
                     delta_neg += relu(int(img[in_neuron]) - spike_times[in_neuron, input_layer])
-                    # neuron_spktime_delta = (
-                    #     typecast(ArithRef,
-                    #              Abs(spike_times[in_neuron, input_layer] - int(img[in_neuron]))))
-                    # prop.append(neuron_spktime_delta <= max_delta_per_neuron)
-                    # deltas_list.append(neuron_spktime_delta)
-                    # prop.append(spike_times[in_neuron,input_layer] == int(img[in_neuron]))
-                    # print(img[in_neuron], end = '\t')
                 prop.append((delta_pos + delta_neg) <= delta)
-                # prop.append(Sum(deltas_list) <= delta)
                 info(f"Inputs Property Done in {time.time() - tx} sec")
 
                 # Output property
@@ -369,7 +211,7 @@ def run_test(cfg:CFG):
         # For each delta
         for delta in cfg.deltas:
             global check_sample_non_smt
-            def check_sample_non_smt(sample:Tuple[int, TImage, int, int],
+            def check_sample_non_smt(sample:tuple[int, TImage, int, int],
                                      adv_train:bool=False, # Disabled because of model performance decreasing.
                                      weights_list:TWeightList=weights_list):
                 sample_no, img, label, orig_pred = sample
