@@ -8,3 +8,4 @@ class CFG:
     num_samples:int = 14
     deltas:tuple[int,...] = (1,)
     z3:bool = False
+    milp:bool = False

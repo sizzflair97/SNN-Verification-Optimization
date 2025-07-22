@@ -2,7 +2,7 @@ from copy import deepcopy
 from multiprocessing import Pool
 from random import sample as random_sample
 from random import seed
-from typing import Any
+from typing import Any, TypeAlias, TypeVar
 from collections.abc import Generator
 import time, logging, typing, pdb
 import numpy as np
@@ -189,11 +189,9 @@ def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch):
     theta = 1.0  # spike threshold
     tau = 1  # synaptic delay
     delta = 1  # perturbation budget
-    layers = [2, 2, 2]  # N0, N1, N2
-
-    # example weights: layer 0->1 and layer 1->2
-    weights = {(0, 0): [[0.6, 0.7], [0.8, 0.5]], (1, 1): [[1.0, 0.9], [0.6, 1.1]]}  # w_0: N0 x N1  # w_1: N1 x N2
-    s0_orig = [1, 2]
+    
+    samples_no_list, sampled_imgs, orig_preds = sample_images_and_predictions(cfg, weights_list, images)
+    s0_orig = sampled_imgs[0]  # Original spike times for input layer
 
     # ------------------------
     # MODEL SETUP
@@ -201,52 +199,57 @@ def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch):
     model = pulp.LpProblem("MultiLayer_SNN_Verification", pulp.LpMinimize)
 
     # Variables: spike time and perturbation (input layer)
-    s = {}  # s[l,n] = spike time
-    d = {}
-    for i in range(layers[0]):
-        s[(0, i)] = pulp.LpVariable(f"s_0_{i}", 0, T - 1, cat="Integer")
-        d[i] = pulp.LpVariable(f"d_{i}", 0, T - 1, cat="Integer")
-        model += s[(0, i)] - s0_orig[i] <= d[i]
-        model += s0_orig[i] - s[(0, i)] <= d[i]
-    model += pulp.lpSum(d.values()) <= delta
+    spike_times = dict[tuple[NodeIdx, LayerIdx], pulp.LpVariable]()  # s[l,n] = spike time
+    neuron_perturbation = dict[NodeIdx, pulp.LpVariable]()  # d_n = perturbation for neuron n
+    for neuron in get_layer_neurons_iter(0):
+        spike_times[neuron, 0] = pulp.LpVariable(f"s_0_{neuron}", 0, T - 1, cat="Integer") # Xi_1
+        neuron_perturbation[neuron] = pulp.LpVariable(f"d_{neuron}", 0, T - 1, cat="Integer")
+        model += spike_times[neuron, 0] - s0_orig[neuron] <= neuron_perturbation[neuron]
+        model += s0_orig[neuron] - spike_times[neuron, 0] <= neuron_perturbation[neuron]
+    model += pulp.lpSum(neuron_perturbation.values()) <= delta
 
     # Intermediate variables
-    p, spike, act = {}, {}, {}
+    p = dict[Node_Layer_Time, pulp.LpVariable]()  # p[l,t,n] = potential at layer l, time t, neuron n
 
     # Variables and constraints for each layer ≥ 1
-    for l in range(1, len(layers)):
-        for n in range(layers[l]):
-            s[(l, n)] = pulp.LpVariable(f"s_{l}_{n}", tau * l, T - 1, cat="Integer")
-            for t in range(T):
-                p[(l, t, n)] = pulp.LpVariable(f"p_{l}_{t}_{n}", 0, None)
-                spike[(l, t, n)] = pulp.LpVariable(f"spike_{l}_{t}_{n}", 0, 1, cat="Binary")
-                act[(l, t, n)] = pulp.LpVariable(f"act_{l}_{t}_{n}", 0, 1, cat="Binary")
+    for post_layer in range(1, len(n_layer_neurons)):
+        for post_neuron in get_layer_neurons_iter(post_layer):
+            # Xi_1
+            spike_times[post_neuron, post_layer] = pulp.LpVariable(f"s_{post_layer}_{post_neuron}", tau * post_layer, T - 1, cat="Integer")
+            p[post_neuron, post_layer, 0] = pulp.LpVariable(f"p_{post_layer}_0_{post_neuron}", 0, 0)  # Xi_2
+            for t in range(1, T):
+                p[post_neuron, post_layer, t] = pulp.LpVariable(f"p_{post_layer}_{t}_{post_neuron}")
 
     # Potential accumulation and spike decision
-    for l in range(1, len(layers)):
-        prev_layer_size = layers[l - 1]
-        for n in range(layers[l]):
+    for post_layer in range(1, len(n_layer_neurons)):
+        prev_layer = post_layer - 1
+        prev_layer_size = n_layer_neurons[prev_layer]
+        for post_neuron in get_layer_neurons_iter(post_layer):
+            flag = dict[Node_Layer_Time, pulp.LpVariable]()
+            flag[post_neuron, post_layer, 0] = pulp.LpVariable(f"flag_{post_layer}_0_{post_neuron}", 0, 0)
             for t in range(T):
                 expr = []
-                for m in range(prev_layer_size):
-                    cond = pulp.LpVariable(f"cond_{l}_{t}_{m}_{n}", 0, 1, cat="Binary")
-                    model += s[(l - 1, m)] <= t - tau + (1 - cond) * T
-                    model += s[(l - 1, m)] >= t - T * cond
-                    weight = weights[(l - 1, l - 1)][m][n]
-                    expr.append(weight * cond)
-                model += p[(l, t, n)] == pulp.lpSum(expr)
+                for prev_neuron in get_layer_neurons_iter(prev_layer):
+                    cond = pulp.LpVariable(f"cond_{prev_layer}_{t}_{prev_neuron}", 0, 1, cat="Binary")
+                    model += (
+                        cond * (spike_times[prev_neuron, prev_layer] - t + tau)
+                        -
+                        (1-cond) * (spike_times[prev_neuron, prev_layer] - t + tau + 1)
+                        ) <= 0
+                    expr.append(weights_list[prev_layer][post_neuron[0], prev_neuron[0], prev_neuron[1]] * cond)
+                model += p[(post_neuron, post_layer, t)] == pulp.lpSum(expr)
 
                 M = 100
-                model += p[(l, t, n)] >= theta - (1 - spike[(l, t, n)]) * M
+                model += p[(post_neuron, post_layer, t)] >= theta - (1 - spike[(post_neuron, post_layer, t)]) * M
                 for t_prev in range(t):
-                    model += spike[(l, t_prev, n)] + spike[(l, t, n)] <= 1
+                    model += spike[(post_layer, t_prev, post_neuron)] + spike[(post_layer, t, post_neuron)] <= 1
 
-            model += pulp.lpSum([spike[(l, t, n)] for t in range(T)]) == 1
-            model += s[(l, n)] == pulp.lpSum([t * spike[(l, t, n)] for t in range(T)])
+            model += pulp.lpSum([spike[(post_layer, t, post_neuron)] for t in range(T)]) == 1
+            model += spike_times[(post_layer, post_neuron)] == pulp.lpSum([t * spike[(post_layer, t, post_neuron)] for t in range(T)])
 
     # Robustness constraint: output neuron 1 should not spike earlier than neuron 0
-    s_out_0 = s[(2, 0)]
-    s_out_1 = s[(2, 1)]
+    s_out_0 = spike_times[(2, 0)]
+    s_out_1 = spike_times[(2, 1)]
     model += s_out_1 >= s_out_0 + 1
 
     # Dummy objective
@@ -255,9 +258,9 @@ def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch):
     # Solve
     model.solve()
     print("Status:", pulp.LpStatus[model.status])
-    print("Input spike times:", [int(s[(0, i)].varValue) for i in range(layers[0])])
-    print("Hidden spike times:", [int(s[(1, i)].varValue) for i in range(layers[1])])
-    print("Output spike times:", [int(s[(2, i)].varValue) for i in range(layers[2])])
+    print("Input spike times:", [int(spike_times[(0, i)].varValue) for i in range(n_layer_neurons[0])])
+    print("Hidden spike times:", [int(spike_times[(1, i)].varValue) for i in range(n_layer_neurons[1])])
+    print("Output spike times:", [int(spike_times[(2, i)].varValue) for i in range(n_layer_neurons[2])])
 
 def run_test(cfg: CFG):
     log_name = f"{cfg.log_name}_{num_steps}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"
@@ -274,6 +277,8 @@ def run_test(cfg: CFG):
 
     if cfg.z3:
         run_z3(cfg, weights_list=weights_list, images=images)
+    elif cfg.milp:
+        run_milp(cfg, weights_list=weights_list, images=images)
     else:
         # Recursively find available adversarial attacks.
         def search_perts(

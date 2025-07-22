@@ -6,7 +6,7 @@ from typing import cast as typecast
 from .dictionary_mnist import *
 from .debug import info
 
-def get_layer_neurons_iter(layer: int):
+def get_layer_neurons_iter(layer: int) -> product[tuple[int, int]]:
     return product(range(layer_shapes[layer][0]), range(layer_shapes[layer][1]))
 
 def gen_spike_times() -> TSpikeTime:
@@ -16,14 +16,14 @@ def gen_spike_times() -> TSpikeTime:
     Returns:
         TSpikeTime: Dictionary including z3 Int terms.
     """
-    spike_times = typecast(TSpikeTime, {})
+    spike_times = TSpikeTime()
     for layer, _ in enumerate(n_layer_neurons):
         for layer_neuron in get_layer_neurons_iter(layer):
             spike_times[layer_neuron, layer] = Int(f"dSpkTime_{layer_neuron}_{layer}")
     return spike_times
 
 def gen_weights(weights_list: TWeightList) -> TWeight:
-    weights = typecast(TWeight, {})
+    weights = TWeight()
     print(num_steps, weights_list[0].shape, weights_list[1].shape)
     for in_layer in range(len(n_layer_neurons) - 1):
         layer_weight = weights_list[in_layer]
@@ -39,7 +39,7 @@ def gen_weights(weights_list: TWeightList) -> TWeight:
 
 
 def gen_node_eqns(weights: TWeight, spike_times: TSpikeTime) -> list[BoolRef | bool]:
-    node_eqn: list[BoolRef | bool] = []
+    node_eqn = list[BoolRef | bool]()
     for layer, _ in enumerate(n_layer_neurons):
         for neuron in tqdm(get_layer_neurons_iter(layer)):
             # out layer cannot spike in first "layer" steps.
@@ -59,7 +59,7 @@ def gen_node_eqns(weights: TWeight, spike_times: TSpikeTime) -> list[BoolRef | b
                 out_neuron_pos,
                 0,
             )  # We only use position 0 in dimension 1 for layer output.
-            flag: list[BoolRef | bool] = [False]
+            flag = list[BoolRef | bool]([False])
             # Does not include last step: [0,num_steps-1]
             for timestep in tqdm(
                 range(out_layer, num_steps - 1), desc="Timestep", leave=False

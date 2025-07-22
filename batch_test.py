@@ -26,7 +26,8 @@ def parse():
     parser.add_argument("--num-samples", dest="num_samples", type=int, default=14)
     parser.add_argument("--test-type", dest="test_type", type=str)
     parser.add_argument("--z3", dest="z3", action=BooleanOptionalAction, default=True)
-    
+    parser.add_argument("--milp", dest="milp", action=BooleanOptionalAction, default=True)
+
     return parser.parse_args()
 
 def prepare_log_name(parser:Namespace) -> str:
@@ -34,7 +35,10 @@ def prepare_log_name(parser:Namespace) -> str:
     if getattr(parser, "repeat") > 1: words.append(f"rep_{parser.repeat}")
     if hasattr(parser, "test_type"): words.append(parser.test_type)
     if hasattr(parser, "prefix"): words.append(parser.prefix)
-    words.append("z3" if parser.z3 else "np")
+    prefix = "np"
+    if parser.z3: prefix = "z3"
+    elif parser.milp: prefix = "milp"
+    words.append(prefix)
     return '_'.join(words)
 
 if __name__ == "__main__":
