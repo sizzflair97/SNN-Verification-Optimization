@@ -65,7 +65,7 @@ def load_mnist() -> tuple[TImageBatch, TLabelBatch, TImageBatch, TLabelBatch]:
 
     return images, labels, images_test, labels_test
 
-def run_z3(cfg: CFG, *, weights_list: TWeightList, images: list[TImage]):
+def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
     S = Solver()
     spike_times = gen_spike_times()
     weights = gen_weights(weights_list)
@@ -171,7 +171,7 @@ def run_z3(cfg: CFG, *, weights_list: TWeightList, images: list[TImage]):
 
     info("")
 
-def sample_images_and_predictions(cfg:CFG, weights_list:TWeightList, images: list[TImage]):
+def sample_images_and_predictions(cfg:CFG, weights_list:TWeightList, images: TImageBatch):
     samples_no_list = list[int]()
     sampled_imgs = list[TImage]()
     orig_preds = list[int]()
@@ -184,7 +184,7 @@ def sample_images_and_predictions(cfg:CFG, weights_list:TWeightList, images: lis
     info(f"Sampling is completed with {num_procs} samples.")
     return samples_no_list, sampled_imgs, orig_preds
 
-def run_milp(cfg: CFG, *, weights_list:TWeightList, images: list[TImage]):
+def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch):
     T = 5  # time steps
     theta = 1.0  # spike threshold
     tau = 1  # synaptic delay
