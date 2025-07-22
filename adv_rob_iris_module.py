@@ -152,24 +152,17 @@ def run_test(cfg:CFG):
         sampled_imgs.append(img) # type: ignore
         orig_preds.append(forward(weights_list, img))
     info(f"Sampling is completed with {num_procs} samples.")
-    # data, target = next(iter(test_loader))
-    # inp = spikegen.rate(data, (num_steps-1)=(num_steps-1)) # type: ignore
-    # op = net.forward(inp.view((num_steps-1), -1))[0]
-    # label = int(torch.cat(op).sum(dim=0).argmax())
-    # info(f'single input ran in {time.time()-tx} sec')
 
     # For each delta
     for delta in cfg.deltas:
         global check_sample
-        def check_sample(sample:Tuple[int, TImage, int]):
+        def check_sample(sample:tuple[int, TImage, int]):
             sample_no, img, orig_pred = sample
             orig_neuron = (orig_pred, 0)
             tx = time.time()
             
-            # # Input property terms
+            # Input property terms
             prop = []
-            # max_delta_per_neuron = min(1, delta)
-            # max_delta_per_neuron = delta
             input_layer = 0
             deltas_list = []
             delta_pos = IntVal(0)
@@ -179,15 +172,7 @@ def run_test(cfg:CFG):
                 ## Try to avoid using abs, it makes z3 extremely slow.
                 delta_pos += relu(spike_times[in_neuron, input_layer] - int(img[in_neuron]))
                 delta_neg += relu(int(img[in_neuron]) - spike_times[in_neuron, input_layer])
-                # neuron_spktime_delta = (
-                #     typecast(ArithRef,
-                #              Abs(spike_times[in_neuron, input_layer] - int(img[in_neuron]))))
-                # prop.append(neuron_spktime_delta <= max_delta_per_neuron)
-                # deltas_list.append(neuron_spktime_delta)
-                # prop.append(spike_times[in_neuron,input_layer] == int(img[in_neuron]))
-                # print(img[in_neuron], end = '\t')
             prop.append((delta_pos + delta_neg) <= delta)
-            # prop.append(Sum(deltas_list) <= delta)
             info(f"Inputs Property Done in {time.time() - tx} sec")
 
             # Output property
@@ -213,7 +198,7 @@ def run_test(cfg:CFG):
             info(f'Total model ready in {time.time() - tx}')
 
             info('Query processing starts')
-            # set_param(verbose=2)
+            set_param(verbose=2)
             # set_param("parallel.enable", True)
             tx = time.time()
             result = S_instance.check()

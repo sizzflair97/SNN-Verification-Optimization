@@ -1,7 +1,7 @@
 from itertools import product
 from tqdm.auto import tqdm
 from z3 import *
-from typing import List
+from typing import overload
 from typing import cast as typecast
 from .dictionary_mnist import *
 from .debug import info
@@ -38,8 +38,8 @@ def gen_weights(weights_list: TWeightList) -> TWeight:
     return weights
 
 
-def gen_node_eqns(weights: TWeight, spike_times: TSpikeTime) -> List[BoolRef | bool]:
-    node_eqn: List[BoolRef | bool] = []
+def gen_node_eqns(weights: TWeight, spike_times: TSpikeTime) -> list[BoolRef | bool]:
+    node_eqn: list[BoolRef | bool] = []
     for layer, _ in enumerate(n_layer_neurons):
         for neuron in tqdm(get_layer_neurons_iter(layer)):
             # out layer cannot spike in first "layer" steps.
@@ -59,7 +59,7 @@ def gen_node_eqns(weights: TWeight, spike_times: TSpikeTime) -> List[BoolRef | b
                 out_neuron_pos,
                 0,
             )  # We only use position 0 in dimension 1 for layer output.
-            flag: List[BoolRef | bool] = [False]
+            flag: list[BoolRef | bool] = [False]
             # Does not include last step: [0,num_steps-1]
             for timestep in tqdm(
                 range(out_layer, num_steps - 1), desc="Timestep", leave=False

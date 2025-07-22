@@ -1,0 +1,3 @@
+[submodule "Temporal-Coded-Deep-SNN"]
+	path = Temporal-Coded-Deep-SNN
+	url = https://github.com/brseong/Temporal-Coded-Deep-SNN.git

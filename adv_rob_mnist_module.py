@@ -2,9 +2,11 @@ from copy import deepcopy
 from multiprocessing import Pool
 from random import sample as random_sample
 from random import seed
-import time, logging, typing
-import numpy as np
+from typing import Any
 from collections.abc import Generator
+import time, logging, typing, pdb
+import numpy as np
+import pulp
 from z3 import *
 from utils.dictionary_mnist import *
 from utils.encoding_mnist import *
@@ -63,6 +65,199 @@ def load_mnist() -> tuple[TImageBatch, TLabelBatch, TImageBatch, TLabelBatch]:
 
     return images, labels, images_test, labels_test
 
+def run_z3(cfg: CFG, *, weights_list: TWeightList, images: list[TImage]):
+    S = Solver()
+    spike_times = gen_spike_times()
+    weights = gen_weights(weights_list)
+
+    # Load equations.
+    eqn_path = (
+        f"eqn/eqn_{num_steps}_{'_'.join([str(i) for i in n_layer_neurons])}.txt"
+    )
+    if not load_expr or not os.path.isfile(eqn_path):
+        node_eqns = gen_node_eqns(weights, spike_times)
+        S.add(node_eqns)
+        if save_expr:
+            try:
+                with open(eqn_path, "w") as f:
+                    f.write(S.sexpr())
+                    info("Node equations are saved.")
+            except:
+                pdb.set_trace(header="Failed to save node eqns.")
+    else:
+        S.from_file(eqn_path)
+    info("Solver is loaded.")
+
+    samples_no_list, sampled_imgs, orig_preds = sample_images_and_predictions(cfg, weights_list, images)
+
+    # For each delta
+    for delta in cfg.deltas:
+        global check_sample
+
+        def check_sample(sample: tuple[int, TImage, int]):
+            sample_no, img, orig_pred = sample
+            orig_neuron = (orig_pred, 0)
+            tx = time.time()
+
+            # Input property terms
+            prop: list[BoolRef] = []
+            input_layer = 0
+            delta_pos = IntVal(0)
+            delta_neg = IntVal(0)
+
+            def relu(x: Any):
+                return If(x > 0, x, 0)
+
+            for in_neuron in get_layer_neurons_iter(input_layer):
+                # Try to avoid using abs, as it makes z3 extremely slow.
+                delta_pos += relu(
+                    spike_times[in_neuron, input_layer] - int(img[in_neuron])
+                )
+                delta_neg += relu(
+                    int(img[in_neuron]) - spike_times[in_neuron, input_layer]
+                )
+            prop.append((delta_pos + delta_neg) <= delta)
+            info(f"Inputs Property Done in {time.time() - tx} sec")
+
+            # Output property
+            tx = time.time()
+            op = []
+            last_layer = len(n_layer_neurons) - 1
+            for out_neuron in get_layer_neurons_iter(last_layer):
+                if out_neuron != orig_neuron:
+                    # It is equal to Not(spike_times[out_neuron, last_layer] >= spike_times[orig_neuron, last_layer]),
+                    # we are checking p and Not(q) and q = And(q1, q2, ..., qn)
+                    # so Not(q) is Or(Not(q1), Not(q2), ..., Not(qn))
+                    op.append(
+                        spike_times[out_neuron, last_layer]
+                        <= spike_times[orig_neuron, last_layer]
+                    )
+            op = Or(op)
+            info(f"Output Property Done in {time.time() - tx} sec")
+
+            tx = time.time()
+            S_instance = deepcopy(S)
+            info(f"Network Encoding read in {time.time() - tx} sec")
+            S_instance.add(op)  # type: ignore
+            S_instance.add(prop)  # type: ignore
+            info(f"Total model ready in {time.time() - tx}")
+
+            info("Query processing starts")
+            # set_param(verbose=2)
+            # set_param("parallel.enable", True)
+            tx = time.time()
+            result = S_instance.check()  # type: ignore
+            info(f"Checking done in time {time.time() - tx}")
+            if result == sat:
+                info(f"Not robust for sample {sample_no} and delta={delta}")
+            elif result == unsat:
+                info(f"Robust for sample {sample_no} and delta={delta}")
+            else:
+                info(
+                    f"Unknown at sample {sample_no} for reason {S_instance.reason_unknown()}"
+                )
+            info("")
+            return result
+
+        samples = zip(samples_no_list, sampled_imgs, orig_preds)
+        if mp:
+            with Pool(num_procs) as pool:
+                pool.map(check_sample, samples)
+                pool.close()
+                pool.join()
+        else:
+            for sample in samples:
+                check_sample(sample)
+
+    info("")
+
+def sample_images_and_predictions(cfg:CFG, weights_list:TWeightList, images: list[TImage]):
+    samples_no_list = list[int]()
+    sampled_imgs = list[TImage]()
+    orig_preds = list[int]()
+    for sample_no in random_sample([*range(len(images))], k=cfg.num_samples):
+        info(f"sample {sample_no} is drawn.")
+        samples_no_list.append(sample_no)
+        img = images[sample_no]
+        sampled_imgs.append(img)  # type: ignore
+        orig_preds.append(forward(weights_list, img))
+    info(f"Sampling is completed with {num_procs} samples.")
+    return samples_no_list, sampled_imgs, orig_preds
+
+def run_milp(cfg: CFG, *, weights_list:TWeightList, images: list[TImage]):
+    T = 5  # time steps
+    theta = 1.0  # spike threshold
+    tau = 1  # synaptic delay
+    delta = 1  # perturbation budget
+    layers = [2, 2, 2]  # N0, N1, N2
+
+    # example weights: layer 0->1 and layer 1->2
+    weights = {(0, 0): [[0.6, 0.7], [0.8, 0.5]], (1, 1): [[1.0, 0.9], [0.6, 1.1]]}  # w_0: N0 x N1  # w_1: N1 x N2
+    s0_orig = [1, 2]
+
+    # ------------------------
+    # MODEL SETUP
+    # ------------------------
+    model = pulp.LpProblem("MultiLayer_SNN_Verification", pulp.LpMinimize)
+
+    # Variables: spike time and perturbation (input layer)
+    s = {}  # s[l,n] = spike time
+    d = {}
+    for i in range(layers[0]):
+        s[(0, i)] = pulp.LpVariable(f"s_0_{i}", 0, T - 1, cat="Integer")
+        d[i] = pulp.LpVariable(f"d_{i}", 0, T - 1, cat="Integer")
+        model += s[(0, i)] - s0_orig[i] <= d[i]
+        model += s0_orig[i] - s[(0, i)] <= d[i]
+    model += pulp.lpSum(d.values()) <= delta
+
+    # Intermediate variables
+    p, spike, act = {}, {}, {}
+
+    # Variables and constraints for each layer ≥ 1
+    for l in range(1, len(layers)):
+        for n in range(layers[l]):
+            s[(l, n)] = pulp.LpVariable(f"s_{l}_{n}", tau * l, T - 1, cat="Integer")
+            for t in range(T):
+                p[(l, t, n)] = pulp.LpVariable(f"p_{l}_{t}_{n}", 0, None)
+                spike[(l, t, n)] = pulp.LpVariable(f"spike_{l}_{t}_{n}", 0, 1, cat="Binary")
+                act[(l, t, n)] = pulp.LpVariable(f"act_{l}_{t}_{n}", 0, 1, cat="Binary")
+
+    # Potential accumulation and spike decision
+    for l in range(1, len(layers)):
+        prev_layer_size = layers[l - 1]
+        for n in range(layers[l]):
+            for t in range(T):
+                expr = []
+                for m in range(prev_layer_size):
+                    cond = pulp.LpVariable(f"cond_{l}_{t}_{m}_{n}", 0, 1, cat="Binary")
+                    model += s[(l - 1, m)] <= t - tau + (1 - cond) * T
+                    model += s[(l - 1, m)] >= t - T * cond
+                    weight = weights[(l - 1, l - 1)][m][n]
+                    expr.append(weight * cond)
+                model += p[(l, t, n)] == pulp.lpSum(expr)
+
+                M = 100
+                model += p[(l, t, n)] >= theta - (1 - spike[(l, t, n)]) * M
+                for t_prev in range(t):
+                    model += spike[(l, t_prev, n)] + spike[(l, t, n)] <= 1
+
+            model += pulp.lpSum([spike[(l, t, n)] for t in range(T)]) == 1
+            model += s[(l, n)] == pulp.lpSum([t * spike[(l, t, n)] for t in range(T)])
+
+    # Robustness constraint: output neuron 1 should not spike earlier than neuron 0
+    s_out_0 = s[(2, 0)]
+    s_out_1 = s[(2, 1)]
+    model += s_out_1 >= s_out_0 + 1
+
+    # Dummy objective
+    model += s_out_0
+
+    # Solve
+    model.solve()
+    print("Status:", pulp.LpStatus[model.status])
+    print("Input spike times:", [int(s[(0, i)].varValue) for i in range(layers[0])])
+    print("Hidden spike times:", [int(s[(1, i)].varValue) for i in range(layers[1])])
+    print("Output spike times:", [int(s[(2, i)].varValue) for i in range(layers[2])])
 
 def run_test(cfg: CFG):
     log_name = f"{cfg.log_name}_{num_steps}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"
@@ -78,119 +273,7 @@ def run_test(cfg: CFG):
     info("Data is loaded")
 
     if cfg.z3:
-        S = Solver()
-        spike_times = gen_spike_times()
-        weights = gen_weights(weights_list)
-
-        # Load equations.
-        eqn_path = (
-            f"eqn/eqn_{num_steps}_{'_'.join([str(i) for i in n_layer_neurons])}.txt"
-        )
-        if not load_expr or not os.path.isfile(eqn_path):
-            node_eqns = gen_node_eqns(weights, spike_times)
-            S.add(node_eqns)
-            if save_expr:
-                try:
-                    with open(eqn_path, "w") as f:
-                        f.write(S.sexpr())
-                        info("Node equations are saved.")
-                except:
-                    pdb.set_trace(header="Failed to save node eqns.")
-        else:
-            S.from_file(eqn_path)
-        info("Solver is loaded.")
-
-        samples_no_list: list[int] = []
-        sampled_imgs: list[TImage] = []
-        orig_preds: list[int] = []
-        for sample_no in random_sample([*range(len(images))], k=cfg.num_samples):
-            info(f"sample {sample_no} is drawn.")
-            samples_no_list.append(sample_no)
-            img: TImage = images[sample_no]
-            sampled_imgs.append(img)  # type: ignore
-            orig_preds.append(forward(weights_list, img))
-        info(f"Sampling is completed with {num_procs} samples.")
-
-        # For each delta
-        for delta in cfg.deltas:
-            global check_sample
-
-            def check_sample(sample: tuple[int, TImage, int]):
-                sample_no, img, orig_pred = sample
-                orig_neuron = (orig_pred, 0)
-                tx = time.time()
-
-                # Input property terms
-                prop: list[BoolRef] = []
-                input_layer = 0
-                delta_pos = IntVal(0)
-                delta_neg = IntVal(0)
-
-                def relu(x: Any):
-                    return If(x > 0, x, 0)
-
-                for in_neuron in get_layer_neurons_iter(input_layer):
-                    # Try to avoid using abs, as it makes z3 extremely slow.
-                    delta_pos += relu(
-                        spike_times[in_neuron, input_layer] - int(img[in_neuron])
-                    )
-                    delta_neg += relu(
-                        int(img[in_neuron]) - spike_times[in_neuron, input_layer]
-                    )
-                prop.append((delta_pos + delta_neg) <= delta)
-                info(f"Inputs Property Done in {time.time() - tx} sec")
-
-                # Output property
-                tx = time.time()
-                op = []
-                last_layer = len(n_layer_neurons) - 1
-                for out_neuron in get_layer_neurons_iter(last_layer):
-                    if out_neuron != orig_neuron:
-                        # It is equal to Not(spike_times[out_neuron, last_layer] >= spike_times[orig_neuron, last_layer]),
-                        # we are checking p and Not(q) and q = And(q1, q2, ..., qn)
-                        # so Not(q) is Or(Not(q1), Not(q2), ..., Not(qn))
-                        op.append(
-                            spike_times[out_neuron, last_layer]
-                            <= spike_times[orig_neuron, last_layer]
-                        )
-                op = Or(op)
-                info(f"Output Property Done in {time.time() - tx} sec")
-
-                tx = time.time()
-                S_instance = deepcopy(S)
-                info(f"Network Encoding read in {time.time() - tx} sec")
-                S_instance.add(op)  # type: ignore
-                S_instance.add(prop)  # type: ignore
-                info(f"Total model ready in {time.time() - tx}")
-
-                info("Query processing starts")
-                # set_param(verbose=2)
-                # set_param("parallel.enable", True)
-                tx = time.time()
-                result = S_instance.check()  # type: ignore
-                info(f"Checking done in time {time.time() - tx}")
-                if result == sat:
-                    info(f"Not robust for sample {sample_no} and delta={delta}")
-                elif result == unsat:
-                    info(f"Robust for sample {sample_no} and delta={delta}")
-                else:
-                    info(
-                        f"Unknown at sample {sample_no} for reason {S_instance.reason_unknown()}"
-                    )
-                info("")
-                return result
-
-            samples = zip(samples_no_list, sampled_imgs, orig_preds)
-            if mp:
-                with Pool(num_procs) as pool:
-                    pool.map(check_sample, samples)
-                    pool.close()
-                    pool.join()
-            else:
-                for sample in samples:
-                    check_sample(sample)
-
-        info("")
+        run_z3(cfg, weights_list=weights_list, images=images)
     else:
         # Recursively find available adversarial attacks.
         def search_perts(
