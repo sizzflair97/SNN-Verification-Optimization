@@ -7,6 +7,8 @@ from collections.abc import Generator
 import time, logging, typing, pdb
 import numpy as np
 import pulp
+from pulp import LpVariable, LpAffineExpression, lpSum
+from torch import mode
 from z3 import *
 from utils.dictionary_mnist import *
 from utils.encoding_mnist import *
@@ -185,82 +187,114 @@ def sample_images_and_predictions(cfg:CFG, weights_list:TWeightList, images: TIm
     return samples_no_list, sampled_imgs, orig_preds
 
 def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch):
+    samples_no_list, sampled_imgs, orig_preds = sample_images_and_predictions(cfg, weights_list, images)
+    for sample_no, img, orig_pred in zip(samples_no_list, sampled_imgs, orig_preds):
+        info(f"Sample {sample_no} with original prediction {orig_pred} is processed.")
+        _model = run_milp_single(weights_list, img, orig_pred)
+        print("Status:", pulp.LpStatus[_model.status])
+    
+def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int) -> pulp.LpProblem:
     T = 5  # time steps
     theta = 1.0  # spike threshold
     tau = 1  # synaptic delay
     delta = 1  # perturbation budget
-    
-    samples_no_list, sampled_imgs, orig_preds = sample_images_and_predictions(cfg, weights_list, images)
-    s0_orig = sampled_imgs[0]  # Original spike times for input layer
 
-    # ------------------------
-    # MODEL SETUP
-    # ------------------------
     model = pulp.LpProblem("MultiLayer_SNN_Verification", pulp.LpMinimize)
+    M = 1000  # Large constant for MILP
+    epsilon = LpVariable(f"epsilon", lowBound = 0)
+    model += epsilon == 1e-12
 
     # Variables: spike time and perturbation (input layer)
-    spike_times = dict[tuple[NodeIdx, LayerIdx], pulp.LpVariable]()  # s[l,n] = spike time
-    neuron_perturbation = dict[NodeIdx, pulp.LpVariable]()  # d_n = perturbation for neuron n
+    spike_times = dict[tuple[NodeIdx, LayerIdx], LpVariable]()  # s[l,n] = spike time
+    neuron_perturbation = dict[NodeIdx, LpVariable]()  # d_n = perturbation for neuron n
     for neuron in get_layer_neurons_iter(0):
-        spike_times[neuron, 0] = pulp.LpVariable(f"s_0_{neuron}", 0, T - 1, cat="Integer") # Xi_1
-        neuron_perturbation[neuron] = pulp.LpVariable(f"d_{neuron}", 0, T - 1, cat="Integer")
+        spike_times[neuron, 0] = LpVariable(f"s_0_{neuron}", 0, T - 1, cat="Integer") # Xi_1
+        ## Begin Xi_7
+        neuron_perturbation[neuron] = LpVariable(f"d_{neuron}", 0, T - 1, cat="Integer")
         model += spike_times[neuron, 0] - s0_orig[neuron] <= neuron_perturbation[neuron]
         model += s0_orig[neuron] - spike_times[neuron, 0] <= neuron_perturbation[neuron]
-    model += pulp.lpSum(neuron_perturbation.values()) <= delta
+        ## End Xi_7
+    model += lpSum(neuron_perturbation.values()) <= delta
 
     # Intermediate variables
-    p = dict[Node_Layer_Time, pulp.LpVariable]()  # p[l,t,n] = potential at layer l, time t, neuron n
+    p = dict[Neuron_Layer_Time, LpVariable]()  # p[l,t,n] = potential at layer l, time t, neuron n
+    flag = dict[Neuron_Layer_Time, LpVariable]() # a[l,t,n] = activation flag for neuron n at layer l, time t
+    activated = dict[Neuron_Layer_Time, LpVariable]()  # a[l,t,n] = activation flag for neuron n at layer l, time t
+    cond = dict[Neuron_Layer_Time, LpVariable]()  # cond[l,t,n] = condition variable for neuron n at layer l, time t
 
     # Variables and constraints for each layer ≥ 1
     for post_layer in range(1, len(n_layer_neurons)):
         for post_neuron in get_layer_neurons_iter(post_layer):
-            # Xi_1
-            spike_times[post_neuron, post_layer] = pulp.LpVariable(f"s_{post_layer}_{post_neuron}", tau * post_layer, T - 1, cat="Integer")
-            p[post_neuron, post_layer, 0] = pulp.LpVariable(f"p_{post_layer}_0_{post_neuron}", 0, 0)  # Xi_2
+            spike_times[post_neuron, post_layer] = LpVariable(f"s_{post_layer}_{post_neuron}", tau * post_layer, T - 1, cat="Integer") # Xi_1
+            for t in range(T):
+                p[post_neuron, post_layer, t] = LpVariable(f"p_{post_layer}_{t}_{post_neuron}")
+                flag[post_neuron, post_layer, t] = LpVariable(f"a_{post_layer}_{t}_{post_neuron}", 0, 1, cat="Binary")
+                activated[post_neuron, post_layer, t] = LpVariable(f"active_{post_layer}_{t}_{post_neuron}", 0, 1, cat="Binary")
+            model += p[post_neuron, post_layer, 0] == 0  # Xi_2
+    
+    # Condition variables for previous layers, used in Xi_3
+    for prev_layer in range(len(n_layer_neurons) - 1):
+        for prev_neuron in get_layer_neurons_iter(prev_layer):
             for t in range(1, T):
-                p[post_neuron, post_layer, t] = pulp.LpVariable(f"p_{post_layer}_{t}_{post_neuron}")
+                cond[prev_neuron, t, prev_layer] = LpVariable(f"cond_{prev_layer}_{t-tau}_{prev_neuron}", 0, 1, cat="Binary")
 
     # Potential accumulation and spike decision
     for post_layer in range(1, len(n_layer_neurons)):
         prev_layer = post_layer - 1
-        prev_layer_size = n_layer_neurons[prev_layer]
         for post_neuron in get_layer_neurons_iter(post_layer):
-            flag = dict[Node_Layer_Time, pulp.LpVariable]()
-            flag[post_neuron, post_layer, 0] = pulp.LpVariable(f"flag_{post_layer}_0_{post_neuron}", 0, 0)
-            for t in range(T):
-                expr = []
+            model += flag[post_neuron, post_layer, 0] == 0  # Initial activation flag
+            for t in range(1, T):
+                ### Begin Xi_3
+                expr = list[LpAffineExpression]()
                 for prev_neuron in get_layer_neurons_iter(prev_layer):
-                    cond = pulp.LpVariable(f"cond_{prev_layer}_{t}_{prev_neuron}", 0, 1, cat="Binary")
-                    model += (
-                        cond * (spike_times[prev_neuron, prev_layer] - t + tau)
-                        -
-                        (1-cond) * (spike_times[prev_neuron, prev_layer] - t + tau + 1)
-                        ) <= 0
-                    expr.append(weights_list[prev_layer][post_neuron[0], prev_neuron[0], prev_neuron[1]] * cond)
-                model += p[(post_neuron, post_layer, t)] == pulp.lpSum(expr)
+                    _spike_time = spike_times[prev_neuron, prev_layer]
+                    model += _spike_time <= t - tau + (1 - cond[prev_neuron, t, prev_layer]) * M
+                    model += _spike_time >= t - tau + epsilon - cond[prev_neuron, t, prev_layer] * M
+                    weight = weights_list[prev_layer][post_neuron[0], prev_neuron[0], prev_neuron[1]]
+                    expr.append(weight * cond[prev_neuron, t, prev_layer])
+                model += p[post_neuron, post_layer, t] == lpSum(expr)
+                ### End Xi_3
+                
+                ### Begin Xi_4
+                # Big-M method for spike condition
+                _activated = activated[post_neuron, post_layer, t]
+                model += p[post_neuron, post_layer, t] <= theta - epsilon + _activated * M # Not active
+                model += p[post_neuron, post_layer, t] >= theta - (1 - _activated) * M # Active
 
-                M = 100
-                model += p[(post_neuron, post_layer, t)] >= theta - (1 - spike[(post_neuron, post_layer, t)]) * M
+                _flag = flag[post_neuron, post_layer, t]
                 for t_prev in range(t):
-                    model += spike[(post_layer, t_prev, post_neuron)] + spike[(post_layer, t, post_neuron)] <= 1
+                    model += _flag >= activated[post_neuron, post_layer, t_prev]  # Activation flag should be true if any previous time was active
+                model += _flag <= lpSum([activated[post_neuron, post_layer, t_prev] for t_prev in range(t)]) # activation is false if no previous time was active
+                ### End Xi_4
 
-            model += pulp.lpSum([spike[(post_layer, t, post_neuron)] for t in range(T)]) == 1
-            model += spike_times[(post_layer, post_neuron)] == pulp.lpSum([t * spike[(post_layer, t, post_neuron)] for t in range(T)])
+            ### Begin Xi_5, Xi_6
+            spike_cond = dict[int, LpVariable]()   
+            for t in range(tau * post_layer, T - 1):
+                _spike_cond = spike_cond[t] = LpVariable(f"xi_5_lhs_{post_layer}_{t}_{post_neuron}", 0, 1, cat="Binary")
+                model += _spike_cond <= 1 - flag[post_neuron, post_layer, t]
+                model += _spike_cond <= activated[post_neuron, post_layer, t]
+                model += _spike_cond >= (1 - flag[post_neuron, post_layer, t]) + activated[post_neuron, post_layer, t] - 1
+            xi_5_term = lpSum([t * spike_cond[t] for t in range(tau * post_layer, T - 1)])
+            xi_6_term = (T - 1) * (1 - flag[post_neuron, post_layer, T - 1])
+            model += spike_times[post_neuron, post_layer] ==  xi_5_term + xi_6_term
+            ### End Xi_5, Xi_6
 
     # Robustness constraint: output neuron 1 should not spike earlier than neuron 0
-    s_out_0 = spike_times[(2, 0)]
-    s_out_1 = spike_times[(2, 1)]
-    model += s_out_1 >= s_out_0 + 1
+    target_spike_time = spike_times[(pred_orig, 0), len(n_layer_neurons) - 1]
+    for out_neuron in get_layer_neurons_iter(len(n_layer_neurons) - 1):
+        _other_spike_time = spike_times[out_neuron, len(n_layer_neurons) - 1]
+        # Ensure that output neuron 1 spikes at least 1 time step after output neuron 0
+        if out_neuron[0] != pred_orig:
+            model += target_spike_time + epsilon <= _other_spike_time
+        else:
+            print("Output neuron is the same as original prediction, skipping constraint.")
 
     # Dummy objective
-    model += s_out_0
+    model += target_spike_time
 
     # Solve
-    model.solve()
-    print("Status:", pulp.LpStatus[model.status])
-    print("Input spike times:", [int(spike_times[(0, i)].varValue) for i in range(n_layer_neurons[0])])
-    print("Hidden spike times:", [int(spike_times[(1, i)].varValue) for i in range(n_layer_neurons[1])])
-    print("Output spike times:", [int(spike_times[(2, i)].varValue) for i in range(n_layer_neurons[2])])
+    model.solve(pulp.PULP_CBC_CMD(msg=True))
+    return model
 
 def run_test(cfg: CFG):
     log_name = f"{cfg.log_name}_{num_steps}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"

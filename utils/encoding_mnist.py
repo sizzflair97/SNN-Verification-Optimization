@@ -6,7 +6,7 @@ from typing import cast as typecast
 from .dictionary_mnist import *
 from .debug import info
 
-def get_layer_neurons_iter(layer: int) -> product[tuple[int, int]]:
+def get_layer_neurons_iter(layer: int) -> Iterable[tuple[int, int]]:
     return product(range(layer_shapes[layer][0]), range(layer_shapes[layer][1]))
 
 def gen_spike_times() -> TSpikeTime:

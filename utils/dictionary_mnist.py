@@ -33,12 +33,12 @@ num_procs:int = 14
 NodeIdx = tuple[int, int]; LayerIdx = int; TimeIdx = int # To define neuron states
 InNodeIdx = tuple[int, int]; OutNodeIdx = int; InLayerIdx = int # To define weights. The output neuron position in dimension 1 is always 1, so we ignore it.
 
-Node_Layer_Time = Annotated[tuple[NodeIdx, LayerIdx, TimeIdx], "Represents neuron spatiotemporal position, (node, layer, timestep)."]
+Neuron_Layer_Time = Annotated[tuple[NodeIdx, LayerIdx, TimeIdx], "Represents neuron spatiotemporal position, (node, layer, timestep)."]
 In_Out_InLayer = Annotated[tuple[InNodeIdx, OutNodeIdx, InLayerIdx], "Represents weight, (innode, outnode, layer)."]
 
-TSpike = dict[Node_Layer_Time, BoolRef|bool]
-TPotential = dict[Node_Layer_Time, ArithRef]
-TCurrent = dict[Node_Layer_Time, ArithRef]
+TSpike = dict[Neuron_Layer_Time, BoolRef|bool]
+TPotential = dict[Neuron_Layer_Time, ArithRef]
+TCurrent = dict[Neuron_Layer_Time, ArithRef]
 TWeight = dict[In_Out_InLayer, float]
 TSpikeTime = dict[tuple[NodeIdx, LayerIdx], ArithRef]
 
