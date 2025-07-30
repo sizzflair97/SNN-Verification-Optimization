@@ -281,13 +281,16 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int) -> 
 
     # Robustness constraint: output neuron 1 should not spike earlier than neuron 0
     target_spike_time = spike_times[(pred_orig, 0), len(n_layer_neurons) - 1]
+    not_robust = list[LpVariable]()
     for out_neuron in get_layer_neurons_iter(len(n_layer_neurons) - 1):
         _other_spike_time = spike_times[out_neuron, len(n_layer_neurons) - 1]
         # Ensure that output neuron 1 spikes at least 1 time step after output neuron 0
         if out_neuron[0] != pred_orig:
-            model += target_spike_time + epsilon <= _other_spike_time
-        else:
-            print("Output neuron is the same as original prediction, skipping constraint.")
+            _not_robust = LpVariable(f"not_robust_{out_neuron}", 0, 1, cat="Binary")
+            model += _other_spike_time <= target_spike_time + (1 - _not_robust) * M
+            model += _other_spike_time >= target_spike_time + epsilon - _not_robust * M
+            not_robust.append(_not_robust)
+    model += lpSum(not_robust) >= 1  # Xi_8
 
     # Dummy objective
     model += target_spike_time
