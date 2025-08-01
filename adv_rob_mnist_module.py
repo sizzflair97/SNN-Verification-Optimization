@@ -237,11 +237,11 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
     for prev_layer in range(len(n_layer_neurons) - 1):
         for prev_neuron in get_layer_neurons_iter(prev_layer):
             for t in range(1, T):
-                cond[prev_neuron, t, prev_layer] = LpVariable(f"cond_{prev_layer}_{t-tau}_{prev_neuron}", 0, 1, cat="Binary")
+                cond[prev_neuron, prev_layer, t] = LpVariable(f"cond_{prev_layer}_{t-tau}_{prev_neuron}", 0, 1, cat="Binary")
                 
                 _spike_time = spike_times[prev_neuron, prev_layer]
-                model += _spike_time <= t - tau + (1 - cond[prev_neuron, t, prev_layer]) * M
-                model += _spike_time >= t - tau + epsilon - cond[prev_neuron, t, prev_layer] * M
+                model += _spike_time <= t - tau + (1 - cond[prev_neuron, prev_layer, t]) * M
+                model += _spike_time >= t - tau + epsilon - cond[prev_neuron, prev_layer, t] * M
 
     # Potential accumulation and spike decision
     for post_layer in range(1, len(n_layer_neurons)):
@@ -253,7 +253,7 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
                 expr = list[LpAffineExpression]()
                 for prev_neuron in get_layer_neurons_iter(prev_layer):
                     weight = weights_list[prev_layer][post_neuron[0], prev_neuron[0], prev_neuron[1]]
-                    expr.append(weight * cond[prev_neuron, t, prev_layer])
+                    expr.append(weight * cond[prev_neuron, prev_layer, t])
                 model += p[post_neuron, post_layer, t] == lpSum(expr)
                 ### End Xi_3
                 
