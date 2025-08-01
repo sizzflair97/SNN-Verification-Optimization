@@ -191,18 +191,18 @@ def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch):
     for sample_no, img, orig_pred in zip(samples_no_list, sampled_imgs, orig_preds):
         info(f"Sample {sample_no} with original prediction {orig_pred} is processed.")
         _model = run_milp_single(weights_list, img, orig_pred)
-        print("Status:", pulp.LpStatus[_model.status])
+        info(f"Sample {sample_no} status: {str(pulp.LpStatus[_model.status])}")
     
-def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int) -> pulp.LpProblem:
-    T = 5  # time steps
+def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, delta:int = 1) -> pulp.LpProblem:
+    T = num_steps  # time steps
     theta = 1.0  # spike threshold
     tau = 1  # synaptic delay
-    delta = 1  # perturbation budget
 
     model = pulp.LpProblem("MultiLayer_SNN_Verification", pulp.LpMinimize)
     M = 1000  # Large constant for MILP
-    epsilon = LpVariable(f"epsilon", lowBound = 0)
-    model += epsilon == 1e-12
+    epsilon = 1e-12
+    # epsilon = LpVariable(f"epsilon", lowBound = 0)
+    # model += epsilon == 1e-12
 
     # Variables: spike time and perturbation (input layer)
     spike_times = dict[tuple[NodeIdx, LayerIdx], LpVariable]()  # s[l,n] = spike time
@@ -225,6 +225,7 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int) -> 
     # Variables and constraints for each layer ≥ 1
     for post_layer in range(1, len(n_layer_neurons)):
         for post_neuron in get_layer_neurons_iter(post_layer):
+            assert tau * post_layer <= T - 1, "Time step exceeds limit"
             spike_times[post_neuron, post_layer] = LpVariable(f"s_{post_layer}_{post_neuron}", tau * post_layer, T - 1, cat="Integer") # Xi_1
             for t in range(T):
                 p[post_neuron, post_layer, t] = LpVariable(f"p_{post_layer}_{t}_{post_neuron}")
@@ -237,6 +238,10 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int) -> 
         for prev_neuron in get_layer_neurons_iter(prev_layer):
             for t in range(1, T):
                 cond[prev_neuron, t, prev_layer] = LpVariable(f"cond_{prev_layer}_{t-tau}_{prev_neuron}", 0, 1, cat="Binary")
+                
+                _spike_time = spike_times[prev_neuron, prev_layer]
+                model += _spike_time <= t - tau + (1 - cond[prev_neuron, t, prev_layer]) * M
+                model += _spike_time >= t - tau + epsilon - cond[prev_neuron, t, prev_layer] * M
 
     # Potential accumulation and spike decision
     for post_layer in range(1, len(n_layer_neurons)):
@@ -247,9 +252,6 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int) -> 
                 ### Begin Xi_3
                 expr = list[LpAffineExpression]()
                 for prev_neuron in get_layer_neurons_iter(prev_layer):
-                    _spike_time = spike_times[prev_neuron, prev_layer]
-                    model += _spike_time <= t - tau + (1 - cond[prev_neuron, t, prev_layer]) * M
-                    model += _spike_time >= t - tau + epsilon - cond[prev_neuron, t, prev_layer] * M
                     weight = weights_list[prev_layer][post_neuron[0], prev_neuron[0], prev_neuron[1]]
                     expr.append(weight * cond[prev_neuron, t, prev_layer])
                 model += p[post_neuron, post_layer, t] == lpSum(expr)
@@ -279,17 +281,18 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int) -> 
             model += spike_times[post_neuron, post_layer] ==  xi_5_term + xi_6_term
             ### End Xi_5, Xi_6
 
-    # Robustness constraint: output neuron 1 should not spike earlier than neuron 0
     target_spike_time = spike_times[(pred_orig, 0), len(n_layer_neurons) - 1]
+    # Robustness constraint: output neuron 1 should not spike earlier than neuron 0
     not_robust = list[LpVariable]()
     for out_neuron in get_layer_neurons_iter(len(n_layer_neurons) - 1):
+        if out_neuron[0] == pred_orig: continue
+        
         _other_spike_time = spike_times[out_neuron, len(n_layer_neurons) - 1]
         # Ensure that output neuron 1 spikes at least 1 time step after output neuron 0
-        if out_neuron[0] != pred_orig:
-            _not_robust = LpVariable(f"not_robust_{out_neuron}", 0, 1, cat="Binary")
-            model += _other_spike_time <= target_spike_time + (1 - _not_robust) * M
-            model += _other_spike_time >= target_spike_time + epsilon - _not_robust * M
-            not_robust.append(_not_robust)
+        _not_robust = LpVariable(f"not_robust_{out_neuron}", 0, 1, cat="Binary")
+        model += _other_spike_time <= target_spike_time + (1 - _not_robust) * M
+        model += _other_spike_time >= target_spike_time + epsilon - _not_robust * M
+        not_robust.append(_not_robust)
     model += lpSum(not_robust) >= 1  # Xi_8
 
     # Dummy objective
