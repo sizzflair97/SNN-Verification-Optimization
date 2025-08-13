@@ -18,58 +18,59 @@ def gen_spike_times() -> TSpikeTime:
     """
     spike_times = TSpikeTime()
     for layer, _ in enumerate(n_layer_neurons):
-        for layer_neuron in get_layer_neurons_iter(layer):
-            spike_times[layer_neuron, layer] = Int(f"dSpkTime_{layer_neuron}_{layer}")
+        for neuron in get_layer_neurons_iter(layer):
+            spike_times[neuron, layer] = Int(f"dSpkTime_{neuron}_{layer}")
     return spike_times
 
 def gen_weights(weights_list: TWeightList) -> TWeight:
     weights = TWeight()
     print(num_steps, weights_list[0].shape, weights_list[1].shape)
-    for in_layer in range(len(n_layer_neurons) - 1):
-        layer_weight = weights_list[in_layer]
-        out_layer = in_layer + 1
-        for out_neuron in range(n_layer_neurons[out_layer]):
-            in_neurons = get_layer_neurons_iter(in_layer)
-            for in_neuron in in_neurons:
-                weights[in_neuron, out_neuron, in_layer] = float(
-                    layer_weight[out_neuron, *in_neuron]
+    for prev_layer in range(len(n_layer_neurons) - 1):
+        layer_weight = weights_list[prev_layer]
+        post_layer = prev_layer + 1
+        for post_neuron in range(n_layer_neurons[post_layer]):
+            prev_neurons = get_layer_neurons_iter(prev_layer)
+            for prev_neuron in prev_neurons:
+                weights[prev_neuron, post_neuron, prev_layer] = float(
+                    layer_weight[post_neuron, *prev_neuron]
                 )
     info("Weights are generated.")
     return weights
 
 
 def gen_node_eqns(weights: TWeight, spike_times: TSpikeTime) -> list[BoolRef | bool]:
+    tau: int = 1
     node_eqn = list[BoolRef | bool]()
     for layer, _ in enumerate(n_layer_neurons):
         for neuron in tqdm(get_layer_neurons_iter(layer)):
             # out layer cannot spike in first "layer" steps.
             node_eqn.extend(
                 [
-                    spike_times[neuron, layer] >= layer,
+                    spike_times[neuron, layer] >= layer * tau,
                     spike_times[neuron, layer] <= num_steps - 1,
                 ]
             )
 
-    for out_layer, n_out_layer_neurons in enumerate(n_layer_neurons[1:], start=1):
-        in_layer = out_layer - 1
-        for out_neuron_pos in tqdm(
+    for post_layer, n_out_layer_neurons in enumerate(n_layer_neurons[1:], start=1):
+        prev_layer = post_layer - 1
+        for post_neuron_pos in tqdm(
             range(n_out_layer_neurons), desc="Generating node equations. Nodes"
         ):
-            out_neuron = (
-                out_neuron_pos,
+            post_neuron = (
+                post_neuron_pos,
                 0,
             )  # We only use position 0 in dimension 1 for layer output.
             flag = list[BoolRef | bool]([False])
             # Does not include last step: [0,num_steps-1]
             for timestep in tqdm(
-                range(out_layer, num_steps - 1), desc="Timestep", leave=False
+                range(post_layer, num_steps - 1), desc="Timestep", leave=False
             ):
                 time_cumulated_potential = []
-                for in_neuron in get_layer_neurons_iter(in_layer):
+                for in_neuron in get_layer_neurons_iter(prev_layer):
                     time_cumulated_potential.append(
                         If(
-                            spike_times[in_neuron, in_layer] <= (timestep - 1),
-                            weights[in_neuron, out_neuron_pos, in_layer],
+                            spike_times[in_neuron, prev_layer] <= (timestep - 1),
+                            weights[in_neuron, post_neuron_pos, prev_layer],
                             0,
                         )
                     )
@@ -78,13 +79,13 @@ def gen_node_eqns(weights: TWeight, spike_times: TSpikeTime) -> list[BoolRef | b
                 flag.append(over_threshold)
                 term = typecast(
                     BoolRef,
-                    spike_condition == (spike_times[out_neuron, out_layer] == timestep),
+                    spike_condition == (spike_times[post_neuron, post_layer] == timestep),
                 )
                 node_eqn.append(term)
             # Force spike in last timestep.
             term = typecast(
                 BoolRef,
-                Not(Or(flag)) == (spike_times[out_neuron, out_layer] == num_steps - 1),
+                Not(Or(flag)) == (spike_times[post_neuron, post_layer] == num_steps - 1),
             )
             node_eqn.append(term)
     info("Node equations are generated.")

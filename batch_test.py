@@ -37,6 +37,7 @@ def prepare_log_name(parser:Namespace) -> str:
     if hasattr(parser, "prefix"): words.append(parser.prefix)
     
     prefix: str
+    assert not (parser.z3 == parser.milp == True)
     if parser.z3: prefix = "z3"
     elif parser.milp: prefix = "milp"
     else: prefix = "np"
