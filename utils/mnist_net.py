@@ -8,7 +8,8 @@ from .debug import info
 mgrid = np.mgrid[0:28, 0:28]
 def forward(weights_list:TWeightList,
             img:TImage,
-            layers_firing_time_return:list[np.ndarray[Any, np.dtype[np.float_]]]|None = None) -> int:
+            layers_firing_time_return:list[np.ndarray[Any, np.dtype[np.float_]]]|None = None,
+            voltage_return:list[np.ndarray[Any, np.dtype[np.float_]]]|None = None) -> int:
     # Return by reference at firing_time_ptr.
     SpikeImage = np.zeros((28,28,num_steps+1))
     firingTime:list[np.ndarray[Any, np.dtype[np.float_]]] = []
@@ -25,6 +26,8 @@ def forward(weights_list:TWeightList,
     for layer in range(len(n_layer_neurons)-1):
         Voltage = np.cumsum(np.tensordot(weights_list[layer], SpikeList[layer]), 1)
         Voltage[:, num_steps-1] = threshold + 1
+        if voltage_return is not None:
+            voltage_return.append(Voltage)
         firingTime[layer] = np.argmax(Voltage > threshold, axis=1).astype(float) + 1
         # in layer 0, max time is num_steps-1, but in layer 1, max time is num_steps, so we clamp it.
         firingTime[layer][firingTime[layer] > num_steps-1] = num_steps-1
@@ -34,6 +37,7 @@ def forward(weights_list:TWeightList,
     V = int(np.argmin(firingTime[-1]))
     if layers_firing_time_return is not None:
         layers_firing_time_return[:] = firingTime[:]
+        
     return V
 
 gamma = 2

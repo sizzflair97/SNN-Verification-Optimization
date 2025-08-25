@@ -194,20 +194,11 @@ def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch):
             info(f"Sample {sample_no}\t|\tDelta: {delta}\t|\toriginal prediction: {orig_pred}\t|\tstatus: {str(pulp.LpStatus[_model.status])}")
     
 def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, delta:int = 1) -> pulp.LpProblem:
-    theta = 1.0  # spike threshold
     tau = 1  # synaptic delay
 
     model = pulp.LpProblem("MultiLayer_SNN_Verification", pulp.LpMinimize)
     M = 1000000  # Large constant for MILP
-    EPS = 1e-5
-    
-    # def get_layer_neurons_iter(layer: int) -> Iterable[tuple[int, int]]:
-    #     match layer:
-    #         case 0:
-    #             return product(range(10,21,5),range(10,21,5))
-    #         case _:
-    #             return product(range(layer_shapes[layer][0]), range(layer_shapes[layer][1]))
-    # s0_orig = s0_orig * 0
+    EPS = 1e-7
 
     # Variables: spike time and perturbation (input layer)
     spike_times = dict[tuple[NodeIdx, LayerIdx], LpVariable]()  # s[l,n] = spike time
@@ -262,15 +253,20 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
                 
             ### Begin Xi_4
             # Big-M method for spike condition
-            model += flag[post_neuron, post_layer, 0] == 0  # Initial activation flag
+            
+            for t_prev in range(num_steps - 1):
+                _p = p[post_neuron, post_layer, t_prev]
+                _activated = activated[post_neuron, post_layer, t_prev]
+                model += _p <= threshold - EPS + _activated * M # Not active
+                model += _p >= threshold - (1 - _activated) * M # Active
+            model += activated[post_neuron, post_layer, num_steps - 1] == 1
+            
+            model += flag[post_neuron, post_layer, 0] == 0
             for t in range(1, num_steps):
                 _flag = flag[post_neuron, post_layer, t]
-                _p = p[post_neuron, post_layer, t]
                 expr = LpAffineExpression()
                 for t_prev in range(t):
                     _activated = activated[post_neuron, post_layer, t_prev]
-                    model += _p <= theta - EPS + _activated * M # Not active
-                    model += _p >= theta - (1 - _activated) * M # Active
                     model += _flag >= _activated
                     expr += _activated
                 model += _flag <= expr
@@ -282,14 +278,15 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
             for t in range(tau * post_layer, num_steps - 1):
                 _spike_cond = LpVariable(f"spike_{post_neuron}_{post_layer}_{t}", cat=pulp.LpBinary)
                 _flag = flag[post_neuron, post_layer, t]
+                _activated = activated[post_neuron, post_layer, t]
                 model += _spike_cond <= 1 - _flag
-                model += _spike_cond <= activated[post_neuron, post_layer, t]
-                model += _spike_cond >= (1 - _flag) + activated[post_neuron, post_layer, t] - 1
-                
+                model += _spike_cond <= _activated
+                model += _spike_cond >= (1 - _flag) + _activated - 1
+
                 one_hot += _spike_cond
                 xi_5_term += t * _spike_cond
             xi_6_term = (num_steps - 1) * (1 - flag[post_neuron, post_layer, num_steps - 1])
-            model += one_hot == 1
+            model += one_hot + (1 - flag[post_neuron, post_layer, num_steps - 1]) == 1
             model += spike_times[post_neuron, post_layer] == xi_5_term + xi_6_term
             ### End Xi_5, Xi_6
 
@@ -316,6 +313,15 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
     # Solve
     solver = pulp.PULP_CBC_CMD(msg=True, logPath="log/milp.log")
     model.solve(solver)
+    
+    if None: # For debug
+        forward(weights_list, s0_orig, original_result := list(), voltage_return := list())
+        milp_result = list()
+        milp_result.append([spike_times[neuron, 1].varValue for neuron in get_layer_neurons_iter(1)])
+        milp_result.append([spike_times[neuron, 2].varValue for neuron in get_layer_neurons_iter(2)])
+        print("Orig result:\t", [_array.tolist() for _array in original_result])
+        print("MILP result:\t", milp_result)
+
     return model
 
 def run_test(cfg: CFG):
