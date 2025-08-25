@@ -186,13 +186,13 @@ def sample_images_and_predictions(cfg:CFG, weights_list:TWeightList, images: TIm
     info(f"Sampling is completed with {num_procs} samples.")
     return samples_no_list, sampled_imgs, orig_preds
 
-def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch):
+def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch, MAP = {pulp.LpStatusOptimal: "Not Robust", pulp.LpStatusInfeasible: "Robust"}):
     samples_no_list, sampled_imgs, orig_preds = sample_images_and_predictions(cfg, weights_list, images)
     for delta in cfg.deltas:
         for sample_no, img, orig_pred in zip(samples_no_list, sampled_imgs, orig_preds):
             _model = run_milp_single(weights_list, img, orig_pred, delta=delta)
-            info(f"Sample {sample_no}\t|\tDelta: {delta}\t|\toriginal prediction: {orig_pred}\t|\tstatus: {str(pulp.LpStatus[_model.status])}")
-    
+            info(f"Sample {sample_no}\t|\tDelta: {delta}\t|\toriginal prediction: {orig_pred}\t|\tstatus: {MAP[_model.status]}")
+
 def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, delta:int = 1) -> pulp.LpProblem:
     tau = 1  # synaptic delay
 
@@ -292,20 +292,20 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
 
     target_spike_time = spike_times[(pred_orig, 0), len(n_layer_neurons) - 1]
     
-    # ### Begin Xi_8
-    # # Robustness constraint: output neuron 1 should not spike earlier than neuron 0
-    # not_robust = list[LpVariable]()
-    # for out_neuron in get_layer_neurons_iter(len(n_layer_neurons) - 1):
-    #     if out_neuron[0] == pred_orig: continue
+    ### Begin Xi_8
+    # Robustness constraint: output neuron 1 should not spike earlier than neuron 0
+    not_robust = list[LpVariable]()
+    for out_neuron in get_layer_neurons_iter(len(n_layer_neurons) - 1):
+        if out_neuron[0] == pred_orig: continue
         
-    #     _other_spike_time = spike_times[out_neuron, len(n_layer_neurons) - 1]
-    #     # Ensure that output neuron 1 spikes at least 1 time step after output neuron 0
-    #     _not_robust = LpVariable(f"not_robust_{out_neuron}", cat=pulp.LpBinary)
-    #     model += _other_spike_time <= target_spike_time + (1 - _not_robust) * M
-    #     model += _other_spike_time >= target_spike_time + EPS - _not_robust * M
-    #     not_robust.append(_not_robust)
-    # model += lpSum(not_robust) >= 1  # Xi_8
-    # ### End Xi_8
+        _other_spike_time = spike_times[out_neuron, len(n_layer_neurons) - 1]
+        # Ensure that output neuron 1 spikes at least 1 time step after output neuron 0
+        _not_robust = LpVariable(f"not_robust_{out_neuron}", cat=pulp.LpBinary)
+        model += _other_spike_time <= target_spike_time + (1 - _not_robust) * M
+        model += _other_spike_time >= target_spike_time + EPS - _not_robust * M
+        not_robust.append(_not_robust)
+    model += lpSum(not_robust) >= 1  # Xi_8
+    ### End Xi_8
 
     # Dummy objective
     model += target_spike_time
