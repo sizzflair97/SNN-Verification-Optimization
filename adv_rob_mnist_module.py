@@ -2,9 +2,9 @@ from copy import deepcopy
 from multiprocessing import Pool
 from random import sample as random_sample
 from random import seed
-from typing import Any, TypeAlias, TypeVar
+from typing import Any
 from collections.abc import Generator
-import time, logging, typing, pdb
+import time, logging, pdb
 import numpy as np
 import pulp
 from pulp import LpVariable, LpAffineExpression, lpSum
@@ -15,69 +15,19 @@ from utils.encoding_mnist import *
 from utils.config import CFG
 from utils.debug import info
 from utils.mnist_net import forward, backward, test_weights, prepare_weights
-from mnist import MNIST
-
-
-def load_mnist() -> tuple[TImageBatch, TLabelBatch, TImageBatch, TLabelBatch]:
-    # Parameter setting
-    GrayLevels = 255  # Image GrayLevels
-    cats = [*range(10)]
-
-    # General variables
-    images = []  # To keep training images
-    labels = []  # To keep training labels
-    images_test = []  # To keep test images
-    labels_test = []  # To keep test labels
-
-    # loading MNIST dataset
-    mndata = MNIST("data/mnist/MNIST/raw/")
-
-    Images, Labels = mndata.load_training()
-    Images = np.array(Images)
-    for i in range(len(Labels)):
-        if Labels[i] in cats:
-            images.append(
-                np.floor(
-                    (GrayLevels - Images[i].reshape(28, 28))
-                    * (num_steps - 1)
-                    / GrayLevels
-                ).astype(int)
-            )
-            labels.append(cats.index(Labels[i]))
-    Images, Labels = mndata.load_testing()
-    Images = np.array(Images)
-    for i in range(len(Labels)):
-        if Labels[i] in cats:
-            images_test.append(
-                np.floor(
-                    (GrayLevels - Images[i].reshape(28, 28))
-                    * (num_steps - 1)
-                    / GrayLevels
-                ).astype(int)
-            )
-            labels_test.append(cats.index(Labels[i]))
-
-    del Images, Labels
-
-    # images contain values within [0,num_steps]
-    images = typing.cast(TImageBatch, np.asarray(images))
-    labels = typing.cast(TLabelBatch, np.asarray(labels))
-    images_test = typing.cast(TImageBatch, np.asarray(images_test))
-    labels_test = typing.cast(TLabelBatch, np.asarray(labels_test))
-
-    return images, labels, images_test, labels_test
 
 def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
+    n_layer_neurons = cfg.n_layer_neurons
     S = Solver()
-    spike_times = gen_spike_times()
-    weights = gen_weights(weights_list)
+    spike_times = gen_spike_times(cfg)
+    weights = gen_weights(cfg, weights_list)
 
     # Load equations.
     eqn_path = (
         f"eqn/eqn_{num_steps}_{'_'.join([str(i) for i in n_layer_neurons])}.txt"
     )
     if not load_expr or not os.path.isfile(eqn_path):
-        node_eqns = gen_node_eqns(weights, spike_times)
+        node_eqns = gen_node_eqns(cfg, weights, spike_times)
         S.add(node_eqns)
         if save_expr:
             try:
@@ -110,7 +60,7 @@ def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
             def relu(x: Any):
                 return If(x > 0, x, 0)
 
-            for in_neuron in get_layer_neurons_iter(input_layer):
+            for in_neuron in get_layer_neurons_iter(cfg, input_layer):
                 # Try to avoid using abs, as it makes z3 extremely slow.
                 delta_pos += relu(
                     spike_times[in_neuron, input_layer] - int(img[in_neuron])
@@ -125,7 +75,7 @@ def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
             tx = time.time()
             op = []
             last_layer = len(n_layer_neurons) - 1
-            for out_neuron in get_layer_neurons_iter(last_layer):
+            for out_neuron in get_layer_neurons_iter(cfg, last_layer):
                 if out_neuron != orig_neuron:
                     # It is equal to Not(spike_times[out_neuron, last_layer] >= spike_times[orig_neuron, last_layer]),
                     # we are checking p and Not(q) and q = And(q1, q2, ..., qn)
@@ -182,18 +132,20 @@ def sample_images_and_predictions(cfg:CFG, weights_list:TWeightList, images: TIm
         samples_no_list.append(sample_no)
         img = images[sample_no]
         sampled_imgs.append(img)  # type: ignore
-        orig_preds.append(forward(weights_list, img))
+        orig_preds.append(forward(cfg, weights_list, img))
     info(f"Sampling is completed with {num_procs} samples.")
     return samples_no_list, sampled_imgs, orig_preds
 
 def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch, MAP = {pulp.LpStatusOptimal: "Not Robust", pulp.LpStatusInfeasible: "Robust"}):
     samples_no_list, sampled_imgs, orig_preds = sample_images_and_predictions(cfg, weights_list, images)
     for delta in cfg.deltas:
+        info(f"Delta: {delta}")
         for sample_no, img, orig_pred in zip(samples_no_list, sampled_imgs, orig_preds):
-            _model = run_milp_single(weights_list, img, orig_pred, delta=delta)
-            info(f"Sample {sample_no}\t|\tDelta: {delta}\t|\toriginal prediction: {orig_pred}\t|\tstatus: {MAP[_model.status]}")
+            _model, _tx = run_milp_single(cfg, weights_list, img, orig_pred, delta=delta)
+            info(f"Sample {sample_no}\t|\ttime: {_tx:.13f}\t|\tstatus: {MAP[_model.status]}")
 
-def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, delta:int = 1) -> pulp.LpProblem:
+def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig:int, delta:int = 1) -> tuple[pulp.LpProblem, float]:
+    n_layer_neurons = cfg.n_layer_neurons
     tau = 1  # synaptic delay
 
     model = pulp.LpProblem("MultiLayer_SNN_Verification", pulp.LpMinimize)
@@ -203,7 +155,7 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
     # Variables: spike time and perturbation (input layer)
     spike_times = dict[tuple[NodeIdx, LayerIdx], LpVariable]()  # s[l,n] = spike time
     neuron_perturbation = dict[NodeIdx, LpVariable]()  # d_n = perturbation for neuron n
-    for neuron in get_layer_neurons_iter(0):
+    for neuron in get_layer_neurons_iter(cfg, 0):
         spike_times[neuron, 0] = LpVariable(f"s_0_{neuron}", 0, num_steps - 1, cat=pulp.LpInteger) # Xi_1
         # Begin Xi_7
         neuron_perturbation[neuron] = LpVariable(f"d_{neuron}", 0, num_steps - 1, cat=pulp.LpInteger)
@@ -220,7 +172,7 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
 
     # Variables and constraints for each layer ≥ 1
     for post_layer in range(1, len(n_layer_neurons)):
-        for post_neuron in get_layer_neurons_iter(post_layer):
+        for post_neuron in get_layer_neurons_iter(cfg, post_layer):
             assert tau * post_layer <= num_steps - 1, "Too high synaptic delay."
             spike_times[post_neuron, post_layer] = LpVariable(f"s_{post_neuron}_{post_layer}", tau * post_layer, num_steps - 1, cat=pulp.LpInteger) # Xi_1
             for t in range(num_steps):
@@ -229,7 +181,7 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
     
     # Condition variables for previous layers, used in Xi_3
     for prev_layer in range(len(n_layer_neurons) - 1):
-        for prev_neuron in get_layer_neurons_iter(prev_layer):
+        for prev_neuron in get_layer_neurons_iter(cfg, prev_layer):
             _spike_time = spike_times[prev_neuron, prev_layer]
             for t in range(num_steps):
                 _cond = cond[prev_neuron, prev_layer, t] = LpVariable(f"If_{prev_neuron}_{prev_layer}_{t}", cat=pulp.LpBinary)
@@ -240,12 +192,12 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
     # Potential accumulation and spike decision
     for post_layer in range(1, len(n_layer_neurons)):
         prev_layer = post_layer - 1
-        for post_neuron in get_layer_neurons_iter(post_layer):
+        for post_neuron in get_layer_neurons_iter(cfg, post_layer):
             p[post_neuron, post_layer, 0] = lpSum([])  # Xi_2
             for t in range(1, num_steps):
                 ### Begin Xi_3
                 expr = LpAffineExpression()
-                for prev_neuron in get_layer_neurons_iter(prev_layer):
+                for prev_neuron in get_layer_neurons_iter(cfg, prev_layer):
                     weight = weights_list[prev_layer][post_neuron[0], prev_neuron[0], prev_neuron[1]]
                     expr += weight * cond[prev_neuron, prev_layer, t-tau]
                 p[post_neuron, post_layer, t] = expr
@@ -295,7 +247,7 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
     ### Begin Xi_8
     # Robustness constraint: output neuron 1 should not spike earlier than neuron 0
     not_robust = list[LpVariable]()
-    for out_neuron in get_layer_neurons_iter(len(n_layer_neurons) - 1):
+    for out_neuron in get_layer_neurons_iter(cfg, len(n_layer_neurons) - 1):
         if out_neuron[0] == pred_orig: continue
         
         _other_spike_time = spike_times[out_neuron, len(n_layer_neurons) - 1]
@@ -312,7 +264,10 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
 
     # Solve
     solver = pulp.PULP_CBC_CMD(msg=True, logPath="log/milp.log")
+    
+    tx = time.time()
     model.solve(solver)
+    total_time = time.time() - tx
     
     if None: # For debug
         forward(weights_list, s0_orig, original_result := list(), voltage_return := list())
@@ -322,9 +277,10 @@ def run_milp_single(weights_list:TWeightList, s0_orig:TImage, pred_orig:int, del
         print("Orig result:\t", [_array.tolist() for _array in original_result])
         print("MILP result:\t", milp_result)
 
-    return model
+    return model, total_time
 
 def run_test(cfg: CFG):
+    n_layer_neurons = cfg.n_layer_neurons
     log_name = f"{cfg.log_name}_{num_steps}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"
     logging.basicConfig(filename="log/" + log_name, level=logging.INFO)
     info(cfg)
@@ -332,8 +288,8 @@ def run_test(cfg: CFG):
     seed(cfg.seed)
     np.random.seed(cfg.seed)
 
-    weights_list = prepare_weights(subtype="mnist", load_data_func=load_mnist)
-    images, labels, *_ = load_mnist()
+    weights_list = prepare_weights(cfg=cfg, subtype=cfg.subtype, load_data_func=cfg.load_data_func)
+    images, labels, *_ = cfg.load_data_func()
 
     info("Data is loaded")
 
@@ -354,8 +310,8 @@ def run_test(cfg: CFG):
             if delta == 0:
                 yield img + pert
             # Search must be terminated at the end of image.
-            elif loc < n_layer_neurons[0]:
-                loc_2d = (loc // layer_shapes[0][1], loc % layer_shapes[0][1])
+            elif loc < cfg.n_layer_neurons[0]:
+                loc_2d = (loc // cfg.layer_shapes[0][1], loc % cfg.layer_shapes[0][1])
                 orig_time = int(img[loc_2d])
                 # Clamp delta at current location
                 available_deltas = range(
@@ -379,7 +335,7 @@ def run_test(cfg: CFG):
             label = labels[sample_no]
             sampled_imgs.append(img)
             sampled_labels.append(label)
-            orig_preds.append(forward(weights_list, img))
+            orig_preds.append(forward(cfg, weights_list, img))
         info(f"Sampling is completed with {num_procs} samples.")
 
         # For each delta
@@ -399,7 +355,7 @@ def run_test(cfg: CFG):
                 adv_spk_times: list[list[np.ndarray[Any, np.dtype[np.float_]]]] = []
                 n_counterexamples = 0
                 for pertd_img in search_perts(img, delta):
-                    pert_pred = forward(weights_list, pertd_img, spk_times := [])
+                    pert_pred = forward(cfg, weights_list, pertd_img, spk_times := [])
                     adv_spk_times.append(spk_times)
                     last_layer_spk_times = spk_times[-1]
                     not_orig_mask = [
@@ -426,10 +382,10 @@ def run_test(cfg: CFG):
                         updated_weights_list = weights_list
                         for spk_times in adv_spk_times:
                             updated_weights_list = backward(
-                                updated_weights_list, spk_times, img, label
+                                cfg, updated_weights_list, spk_times, img, label
                             )
-                        test_weights(updated_weights_list, load_mnist)
-                        new_orig_pred = forward(updated_weights_list, img)
+                        test_weights(cfg, updated_weights_list, cfg.load_data_func)
+                        new_orig_pred = forward(cfg, updated_weights_list, img)
                         new_sample = (*sample[:3], new_orig_pred)
                         info(
                             f"Completed adversarial training. Checking robustness again."

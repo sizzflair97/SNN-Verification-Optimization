@@ -2,15 +2,20 @@ import os
 from typing import Any, LiteralString
 from collections.abc import Callable, Generator, Iterable
 from tqdm.auto import tqdm
+
+from .config import CFG
 from .dictionary_mnist import *
 from .debug import info
 
 mgrid = np.mgrid[0:28, 0:28]
-def forward(weights_list:TWeightList,
+def forward(cfg:CFG,
+            weights_list:TWeightList,
             img:TImage,
             layers_firing_time_return:list[np.ndarray[Any, np.dtype[np.float_]]]|None = None,
             voltage_return:list[np.ndarray[Any, np.dtype[np.float_]]]|None = None) -> int:
     # Return by reference at firing_time_ptr.
+    n_layer_neurons = cfg.n_layer_neurons
+    layer_shapes = cfg.layer_shapes
     SpikeImage = np.zeros((28,28,num_steps+1))
     firingTime:list[np.ndarray[Any, np.dtype[np.float_]]] = []
     Spikes:list[np.ndarray[Any, np.dtype[np.float_]]] = []
@@ -41,13 +46,14 @@ def forward(weights_list:TWeightList,
     return V
 
 gamma = 2
-target = np.zeros((n_layer_neurons[-1],))
-def backward(weights_list:TWeightList,
+def backward(cfg:CFG,
+             weights_list:TWeightList,
              layers_firing_time:list[np.ndarray[Any, np.dtype[np.float_]]],
              image:TImage,
              label:int) -> TWeightList:
+    n_layer_neurons = cfg.n_layer_neurons
     weights_list = [x.copy() for x in weights_list]
-    global target
+    target = np.zeros((n_layer_neurons[-1],))
     # Computing the relative target firing times
     min_firing = min(layers_firing_time[-1])
     if min_firing == num_steps - 1:
@@ -98,13 +104,13 @@ def backward(weights_list:TWeightList,
 datafunc = Callable[[], tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]]
 sample_typing = tuple[np.ndarray[tuple[Literal[28],Literal[28]], np.dtype[np.int_]], int]
 
-def test_weights(weights_list:TWeightList,
+def test_weights(cfg:CFG, weights_list:TWeightList,
                  load_data_func:datafunc) -> None:
     images, labels, *_ = load_data_func()
     correct = 0
     pbar:Iterable[sample_typing] = tqdm(zip(images,labels), total=len(images))
     for i, (image, target) in enumerate(pbar, start=1):
-        predicted = forward(weights_list, image)
+        predicted = forward(cfg, weights_list, image)
         if predicted == target:
             correct += 1
         pbar.desc = f"Acc {correct/i*100:.2f}, predicted {predicted}, target {target}"
@@ -112,7 +118,8 @@ def test_weights(weights_list:TWeightList,
 
 
 
-def prepare_weights(subtype:Literal["mnist", "fmnist"],load_data_func:datafunc|None = None) -> TWeightList:
+def prepare_weights(cfg:CFG, subtype:Literal["mnist", "fmnist"],load_data_func:datafunc|None = None) -> TWeightList:
+    n_layer_neurons = cfg.n_layer_neurons
     if train:
         raise NotImplementedError("The model must be trained from S4NN.")
     else:
@@ -126,5 +133,5 @@ def prepare_weights(subtype:Literal["mnist", "fmnist"],load_data_func:datafunc|N
 
     if test:
         assert load_data_func is not None, "Data loading function must be provided for testing."
-        test_weights(weights_list, load_data_func)
+        test_weights(cfg, weights_list, load_data_func)
     return weights_list

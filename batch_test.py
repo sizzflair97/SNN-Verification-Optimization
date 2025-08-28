@@ -1,10 +1,8 @@
 from typing import Literal, LiteralString
-from utils import *
+from utils.config import CFG
 from adv_rob_iris_module import run_test as run_test_iris
 from adv_rob_mnist_module import run_test as run_test_mnist
-from adv_rob_fmnist_module import run_test as run_test_fmnist
-from numpy import arange
-from argparse import ArgumentParser, Namespace, BooleanOptionalAction
+from argparse import ArgumentParser, Namespace
 from time import strftime, localtime
 
 required_arguments:list[LiteralString] = "test_type prefix".split()
@@ -13,8 +11,14 @@ TestType = Literal["iris", "mnist", "fmnist"]
 def run_test(cfg:CFG, test_type:TestType="mnist"):
     match test_type:
         case "iris": return run_test_iris(cfg)
-        case "mnist": return run_test_mnist(cfg)
-        case "fmnist": return run_test_fmnist(cfg)
+        case "mnist":
+            cfg.subtype = "mnist"
+            cfg.load_data_func = load_mnist
+            return run_test_mnist(cfg)
+        case "fmnist":
+            cfg.subtype = "fmnist"
+            cfg.load_data_func = load_fmnist
+            return run_test_mnist(cfg)
         case _: raise NotImplementedError(f"Test type must be in {TestType}.")
 
 def parse():
@@ -24,9 +28,11 @@ def parse():
     parser.add_argument("--delta-max", dest="delta_max", type=int, default=1)
     parser.add_argument("--repeat", dest="repeat", type=int, default=1)
     parser.add_argument("--num-samples", dest="num_samples", type=int, default=14)
+    parser.add_argument("--n-hidden-neurons", dest="n_hidden_neurons", type=int, default=10)
     parser.add_argument("--test-type", dest="test_type", type=str)
     parser.add_argument("--z3", dest="z3", action="store_true", default=False)
     parser.add_argument("--milp", dest="milp", action="store_true", default=False)
+    parser.add_argument("--np", dest="np", action="store_true", default=False)
 
     return parser.parse_args()
 
@@ -40,7 +46,8 @@ def prepare_log_name(parser:Namespace) -> str:
     assert not (parser.z3 == parser.milp == True)
     if parser.z3: prefix = "z3"
     elif parser.milp: prefix = "milp"
-    else: prefix = "np"
+    elif parser.np: prefix = "np"
+    else: raise ValueError("Invalid solver type.")
     words.append(prefix)
     return '_'.join(words)
 
@@ -49,6 +56,9 @@ if __name__ == "__main__":
     
     if getattr(parser, "repeat") < 1:
         raise ValueError("repeat must be greater than 0.")
+    
+    #Post-init
+    from utils.load import load_mnist, load_fmnist
     
     if all(hasattr(parser, s) for s in required_arguments):
         for iteration in range(parser.repeat):
