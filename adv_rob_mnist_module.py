@@ -324,10 +324,11 @@ def run_test(cfg: CFG):
                         img, delta - abs(delta_at_neuron), loc + 1, new_pert
                     )
 
-        samples_no_list: list[int] = []
-        sampled_imgs: list[TImage] = []
-        sampled_labels: list[int] = []
-        orig_preds: list[int] = []
+        samples_no_list = list[int]()
+        sampled_imgs = list[TImage]()
+        sampled_labels = list[int]()
+        orig_preds = list[int]()
+        orig_grads = list[np.ndarray[Any, np.dtype[np.float_]]]()
         for sample_no in random_sample([*range(len(images))], k=cfg.num_samples):
             info(f"sample {sample_no} is drawn.")
             samples_no_list.append(sample_no)
@@ -335,16 +336,16 @@ def run_test(cfg: CFG):
             label = labels[sample_no]
             sampled_imgs.append(img)
             sampled_labels.append(label)
-            orig_preds.append(forward(cfg, weights_list, img))
+            orig_preds.append(forward(cfg, weights_list, img, spike_times := []))
+            orig_grads.append(backward(cfg, weights_list, spike_times, img, label)[1])
         info(f"Sampling is completed with {num_procs} samples.")
 
         # For each delta
         for delta in cfg.deltas:
-            global check_sample_non_smt
+            global check_sample_direct
 
-            def check_sample_non_smt(
+            def check_sample_direct(
                 sample: tuple[int, TImage, int, int],
-                adv_train: bool = False,
                 weights_list: TWeightList = weights_list,
             ):
                 sample_no, img, label, orig_pred = sample
@@ -354,8 +355,10 @@ def run_test(cfg: CFG):
                 sat_flag: bool = False
                 adv_spk_times: list[list[np.ndarray[Any, np.dtype[np.float_]]]] = []
                 n_counterexamples = 0
+                
                 for pertd_img in search_perts(img, delta):
                     pert_pred = forward(cfg, weights_list, pertd_img, spk_times := [])
+                    
                     adv_spk_times.append(spk_times)
                     last_layer_spk_times = spk_times[-1]
                     not_orig_mask = [
@@ -369,34 +372,10 @@ def run_test(cfg: CFG):
                         <= last_layer_spk_times[orig_pred]
                     ):
                         sat_flag = True
-                        if not adv_train:
-                            break
                         n_counterexamples += 1
                 info(f"Checking done in time {time.time() - tx}")
                 if sat_flag:
-                    if adv_train:
-                        info(
-                            f"Not robust for sample {sample_no} and delta={delta} with {n_counterexamples} counterexamples."
-                        )
-                        info(f"Start adversarial training.")
-                        updated_weights_list = weights_list
-                        for spk_times in adv_spk_times:
-                            updated_weights_list = backward(
-                                cfg, updated_weights_list, spk_times, img, label
-                            )
-                        test_weights(cfg, updated_weights_list, cfg.load_data_func)
-                        new_orig_pred = forward(cfg, updated_weights_list, img)
-                        new_sample = (*sample[:3], new_orig_pred)
-                        info(
-                            f"Completed adversarial training. Checking robustness again."
-                        )
-                        check_sample_non_smt(
-                            new_sample,
-                            adv_train=False,
-                            weights_list=updated_weights_list,
-                        )
-                    else:
-                        info(f"Not robust for sample {sample_no} and delta={delta}")
+                    info(f"Not robust for sample {sample_no} and delta={delta}")
                 elif sat_flag == False:
                     info(f"Robust for sample {sample_no} and delta={delta}.")
                 info("")
@@ -405,12 +384,12 @@ def run_test(cfg: CFG):
             samples = zip(samples_no_list, sampled_imgs, sampled_labels, orig_preds)
             if mp:
                 with Pool(num_procs) as pool:
-                    pool.map(check_sample_non_smt, samples)
+                    pool.map(check_sample_direct, samples)
                     pool.close()
                     pool.join()
             else:
                 for sample in samples:
-                    check_sample_non_smt(sample)
+                    check_sample_direct(sample)
 
         info("")
 

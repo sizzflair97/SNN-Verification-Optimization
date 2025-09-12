@@ -1,6 +1,7 @@
 from typing import Literal, LiteralString
 from utils.config import CFG
-from adv_rob_iris_module import run_test as run_test_iris
+from utils.load import load_mnist, load_fmnist
+from adv_rob_iris_module import layer_shapes, n_layer_neurons, run_test as run_test_iris
 from adv_rob_mnist_module import run_test as run_test_mnist
 from argparse import ArgumentParser, Namespace
 from time import strftime, localtime
@@ -33,6 +34,7 @@ def parse():
     parser.add_argument("--z3", dest="z3", action="store_true", default=False)
     parser.add_argument("--milp", dest="milp", action="store_true", default=False)
     parser.add_argument("--np", dest="np", action="store_true", default=False)
+    parser.add_argument("--adv-attack", dest="adv_attack", action="store_true", default=False)
 
     return parser.parse_args()
 
@@ -46,7 +48,9 @@ def prepare_log_name(parser:Namespace) -> str:
     assert not (parser.z3 == parser.milp == True)
     if parser.z3: prefix = "z3"
     elif parser.milp: prefix = "milp"
-    elif parser.np: prefix = "np"
+    elif parser.np:
+        prefix = "np"
+        if parser.adv_attack: prefix += "-adv"
     else: raise ValueError("Invalid solver type.")
     words.append(prefix)
     return '_'.join(words)
@@ -57,9 +61,6 @@ if __name__ == "__main__":
     if getattr(parser, "repeat") < 1:
         raise ValueError("repeat must be greater than 0.")
     
-    #Post-init
-    from utils.load import load_mnist, load_fmnist
-    
     if all(hasattr(parser, s) for s in required_arguments):
         for iteration in range(parser.repeat):
             run_test(CFG(log_name=prepare_log_name(parser),
@@ -67,7 +68,10 @@ if __name__ == "__main__":
                         num_samples=parser.num_samples,
                         deltas=(parser.delta_max,),
                         z3=parser.z3,
-                        milp=parser.milp),
+                        milp=parser.milp,
+                        adv_attack=parser.adv_attack,
+                        n_layer_neurons=(28*28, parser.n_hidden_neurons, 10),
+                        layer_shapes=((28,28), (parser.n_hidden_neurons,1), (10,1))),
                     test_type=parser.test_type)
     else:
         raise ValueError("Not appropriate arguments.")

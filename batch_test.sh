@@ -5,6 +5,7 @@ deltas=(1 2 3)
 test_types=("mnist" "fmnist")
 # solvers=("np" "z3" "milp")
 solvers=("milp")
+adv=""
 hidden_neurons=(10 12 14 16 18 20)
 for hidden_neuron in ${hidden_neurons[@]}
 do

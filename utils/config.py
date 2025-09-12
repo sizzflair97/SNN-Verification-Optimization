@@ -14,7 +14,8 @@ class CFG:
     deltas:tuple[int,...] = (1,)
     z3:bool = False
     milp:bool = False
+    adv_attack:bool = False
     subtype:Literal["mnist", "fmnist"] = "mnist"
     load_data_func:Callable[[], tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]] = load_mnist
-    n_layer_neurons = (image_len*image_len, 10, 10) # [28*28, 100, 10] default
-    layer_shapes = ((image_len,image_len), (10, 1), (10, 1))
+    n_layer_neurons:tuple[int, ...] = (image_len*image_len, 10, 10) # [28*28, 100, 10] default
+    layer_shapes:tuple[tuple[int, int], ...] = ((image_len,image_len), (10, 1), (10, 1))

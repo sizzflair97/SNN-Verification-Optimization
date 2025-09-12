@@ -50,9 +50,9 @@ def backward(cfg:CFG,
              weights_list:TWeightList,
              layers_firing_time:list[np.ndarray[Any, np.dtype[np.float_]]],
              image:TImage,
-             label:int) -> TWeightList:
+             label:int) -> tuple[TWeightList, np.ndarray[Any, np.dtype[np.float_]]]:
     n_layer_neurons = cfg.n_layer_neurons
-    weights_list = [x.copy() for x in weights_list]
+    dw = [np.zeros_like(weight) for weight in weights_list]
     target = np.zeros((n_layer_neurons[-1],))
     # Computing the relative target firing times
     min_firing = min(layers_firing_time[-1])
@@ -79,8 +79,8 @@ def backward(cfg:CFG,
     # Updating hidden-output weights
     hasFired_o = layers_firing_time[layer - 1] < layers_firing_time[layer][:,
                                             np.newaxis]  # To find which hidden neurons has fired before the ouput neurons
-    weights_list[layer][:, :, 0] -= (delta_o[:, np.newaxis] * hasFired_o * lr[layer])  # Update hidden-ouput weights
-    weights_list[layer] -= lr[layer] * lamda[layer] * weights_list[layer]  # Weight regularization
+    dw[layer][:, :, 0] -= (delta_o[:, np.newaxis] * hasFired_o * lr[layer])  # Update hidden-ouput weights
+    dw[layer] -= lr[layer] * lamda[layer] * weights_list[layer]  # Weight regularization
 
     # Backpropagating error to hidden neurons
     delta_h = (np.multiply(delta_o[:, np.newaxis] * hasFired_o, weights_list[layer][:, :, 0])).sum(
@@ -95,10 +95,13 @@ def backward(cfg:CFG,
     # Updating input-hidden weights
     hasFired_h = image < layers_firing_time[layer][:, np.newaxis,
                                         np.newaxis]  # To find which input neurons has fired before the hidden neurons
-    weights_list[layer] -= lr[layer] * delta_h[:, np.newaxis, np.newaxis] * hasFired_h  # Update input-hidden weights
-    weights_list[layer] -= lr[layer] * lamda[layer] * weights_list[layer]  # Weight regularization
+    dw[layer] -= lr[layer] * delta_h[:, np.newaxis, np.newaxis] * hasFired_h  # Update input-hidden weights
+    dw[layer] -= lr[layer] * lamda[layer] * weights_list[layer]  # Weight regularization
     
-    return weights_list
+    delta_i = (np.multiply(delta_h[:, np.newaxis, np.newaxis] * hasFired_h, weights_list[layer])).sum(
+        axis=0)  # Backpropagated errors from hidden layer to input layer
+
+    return dw, delta_i
 
 
 datafunc = Callable[[], tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]]
