@@ -26,6 +26,7 @@ def gen_spike_times(cfg:CFG) -> TSpikeTime:
 
 def gen_weights(cfg:CFG, weights_list: TWeightList) -> TWeight:
     n_layer_neurons = cfg.n_layer_neurons
+    num_steps = cfg.num_steps
     weights = TWeight()
     print(num_steps, weights_list[0].shape, weights_list[1].shape)
     for prev_layer in range(len(n_layer_neurons) - 1):
@@ -44,6 +45,7 @@ def gen_weights(cfg:CFG, weights_list: TWeightList) -> TWeight:
 def gen_node_eqns(cfg:CFG, weights: TWeight, spike_times: TSpikeTime) -> list[BoolRef | bool]:
     tau: int = 1
     n_layer_neurons = cfg.n_layer_neurons
+    num_steps = cfg.num_steps
     node_eqn = list[BoolRef | bool]()
     for layer, _ in enumerate(n_layer_neurons):
         for neuron in tqdm(get_layer_neurons_iter(cfg, layer)):

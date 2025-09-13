@@ -8,7 +8,6 @@ batch_size = 128
 image_len = 28
 beta = 1
 dtype = torch.float
-num_steps = 5
 num_epochs = 300
 train = False
 test = True
@@ -21,7 +20,7 @@ lr = [.2, .2]  # The learning rate of hidden and ouput neurons
 lamda = [0.000001, 0.000001]  # The regularization penalty for hidden and ouput neurons
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-mp = True #
+mp = False #
 num_procs:int = 14
 
 #Code Function typing

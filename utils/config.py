@@ -2,7 +2,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
-from .load import load_mnist
 from .dictionary_mnist import TImageBatch, TLabelBatch, image_len
 
 @dataclass
@@ -16,6 +15,7 @@ class CFG:
     milp:bool = False
     adv_attack:bool = False
     subtype:Literal["mnist", "fmnist"] = "mnist"
-    load_data_func:Callable[[], tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]] = load_mnist
+    load_data_func:Callable[["CFG",], tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]] = None
     n_layer_neurons:tuple[int, ...] = (image_len*image_len, 10, 10) # [28*28, 100, 10] default
     layer_shapes:tuple[tuple[int, int], ...] = ((image_len,image_len), (10, 1), (10, 1))
+    num_steps:int = 5

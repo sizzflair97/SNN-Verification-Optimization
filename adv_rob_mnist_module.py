@@ -10,11 +10,12 @@ import pulp
 from pulp import LpVariable, LpAffineExpression, lpSum
 from torch import mode
 from z3 import *
+from adv_rob_iris_module import num_steps
 from utils.dictionary_mnist import *
 from utils.encoding_mnist import *
 from utils.config import CFG
 from utils.debug import info
-from utils.mnist_net import forward, backward, test_weights, prepare_weights
+from utils.mnist_net import forward, backward, prepare_weights
 
 def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
     n_layer_neurons = cfg.n_layer_neurons
@@ -146,6 +147,7 @@ def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch, MAP = {
 
 def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig:int, delta:int = 1) -> tuple[pulp.LpProblem, float]:
     n_layer_neurons = cfg.n_layer_neurons
+    num_steps = cfg.num_steps
     tau = 1  # synaptic delay
 
     model = pulp.LpProblem("MultiLayer_SNN_Verification", pulp.LpMinimize)
@@ -281,7 +283,7 @@ def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig
 
 def run_test(cfg: CFG):
     n_layer_neurons = cfg.n_layer_neurons
-    log_name = f"{cfg.log_name}_{num_steps}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"
+    log_name = f"{cfg.log_name}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"
     logging.basicConfig(filename="log/" + log_name, level=logging.INFO)
     info(cfg)
 
@@ -289,7 +291,7 @@ def run_test(cfg: CFG):
     np.random.seed(cfg.seed)
 
     weights_list = prepare_weights(cfg=cfg, subtype=cfg.subtype, load_data_func=cfg.load_data_func)
-    images, labels, *_ = cfg.load_data_func()
+    images, labels, *_ = cfg.load_data_func(cfg)
 
     info("Data is loaded")
 
@@ -300,7 +302,7 @@ def run_test(cfg: CFG):
     else:
         # Recursively find available adversarial attacks.
         def search_perts(
-            img: TImage, delta: int, loc: int = 0, pert: TImage | None = None
+            img: TImage, delta: int, priority: np.ndarray, idx: int = 0, pert: TImage | None = None
         ) -> Generator[TImage, None, None]:
             # Initial case
             if pert is None:
@@ -310,25 +312,26 @@ def run_test(cfg: CFG):
             if delta == 0:
                 yield img + pert
             # Search must be terminated at the end of image.
-            elif loc < cfg.n_layer_neurons[0]:
-                loc_2d = (loc // cfg.layer_shapes[0][1], loc % cfg.layer_shapes[0][1])
-                orig_time = int(img[loc_2d])
+            elif idx < len(priority):
+                loc_2d = priority[idx]
+                orig_time = int(img[loc_2d[0], loc_2d[1]])
                 # Clamp delta at current location
-                available_deltas = range(
+                available_deltas = [*range(
                     -min(orig_time, delta), min((num_steps - 1) - orig_time, delta) + 1
-                )
+                )]
+                available_deltas.sort(key=abs, reverse=True)  # Search large perturbations first
                 for delta_at_neuron in available_deltas:
                     new_pert = pert.copy()
-                    new_pert[loc_2d] += delta_at_neuron
+                    new_pert[loc_2d[0], loc_2d[1]] += delta_at_neuron
                     yield from search_perts(
-                        img, delta - abs(delta_at_neuron), loc + 1, new_pert
+                        img, delta - abs(delta_at_neuron), priority, idx + 1, new_pert
                     )
 
         samples_no_list = list[int]()
         sampled_imgs = list[TImage]()
         sampled_labels = list[int]()
         orig_preds = list[int]()
-        orig_grads = list[np.ndarray[Any, np.dtype[np.float_]]]()
+        search_priority = list[np.ndarray[Any, np.dtype[np.int_]]]()
         for sample_no in random_sample([*range(len(images))], k=cfg.num_samples):
             info(f"sample {sample_no} is drawn.")
             samples_no_list.append(sample_no)
@@ -337,7 +340,9 @@ def run_test(cfg: CFG):
             sampled_imgs.append(img)
             sampled_labels.append(label)
             orig_preds.append(forward(cfg, weights_list, img, spike_times := []))
-            orig_grads.append(backward(cfg, weights_list, spike_times, img, label)[1])
+            orig_grad = backward(cfg, weights_list, spike_times, img, label)[1]
+            priority = np.dstack(np.unravel_index(np.abs(orig_grad).ravel().argsort(), orig_grad.shape))[0]
+            search_priority.append(priority)
         info(f"Sampling is completed with {num_procs} samples.")
 
         # For each delta
@@ -345,10 +350,10 @@ def run_test(cfg: CFG):
             global check_sample_direct
 
             def check_sample_direct(
-                sample: tuple[int, TImage, int, int],
+                sample: tuple[int, TImage, int, int, np.ndarray],
                 weights_list: TWeightList = weights_list,
             ):
-                sample_no, img, label, orig_pred = sample
+                sample_no, img, label, orig_pred, priority = sample
 
                 info("Query processing starts")
                 tx = time.time()
@@ -356,7 +361,7 @@ def run_test(cfg: CFG):
                 adv_spk_times: list[list[np.ndarray[Any, np.dtype[np.float_]]]] = []
                 n_counterexamples = 0
                 
-                for pertd_img in search_perts(img, delta):
+                for pertd_img in search_perts(img, delta, priority):
                     pert_pred = forward(cfg, weights_list, pertd_img, spk_times := [])
                     
                     adv_spk_times.append(spk_times)
@@ -381,7 +386,7 @@ def run_test(cfg: CFG):
                 info("")
                 return sat_flag
 
-            samples = zip(samples_no_list, sampled_imgs, sampled_labels, orig_preds)
+            samples = zip(samples_no_list, sampled_imgs, sampled_labels, orig_preds, search_priority)
             if mp:
                 with Pool(num_procs) as pool:
                     pool.map(check_sample_direct, samples)

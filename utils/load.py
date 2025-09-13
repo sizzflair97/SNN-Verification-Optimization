@@ -1,11 +1,13 @@
-from .dictionary_mnist import num_steps, TImageBatch, TLabelBatch
+from . import CFG
+from .dictionary_mnist import TImageBatch, TLabelBatch
 from mnist import MNIST
 from torchvision.datasets import FashionMNIST
 import numpy as np
 import typing
 
-def load_mnist() -> tuple[TImageBatch, TLabelBatch, TImageBatch, TLabelBatch]:
+def load_mnist(cfg:CFG) -> tuple[TImageBatch, TLabelBatch, TImageBatch, TLabelBatch]:
     # Parameter setting
+    num_steps = cfg.num_steps
     GrayLevels = 255  # Image GrayLevels
     cats = [*range(10)]
 
@@ -53,8 +55,9 @@ def load_mnist() -> tuple[TImageBatch, TLabelBatch, TImageBatch, TLabelBatch]:
 
     return images, labels, images_test, labels_test
 
-def load_fmnist() -> tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
+def load_fmnist(cfg:CFG) -> tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]:
     # Parameter setting
+    num_steps = cfg.num_steps
     GrayLevels = 255  # Image GrayLevels
     cats = [*range(10)]
 

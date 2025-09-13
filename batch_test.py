@@ -30,11 +30,12 @@ def parse():
     parser.add_argument("--repeat", dest="repeat", type=int, default=1)
     parser.add_argument("--num-samples", dest="num_samples", type=int, default=14)
     parser.add_argument("--n-hidden-neurons", dest="n_hidden_neurons", type=int, default=10)
+    parser.add_argument("--num-steps", dest="num_steps", type=int, default=5)
     parser.add_argument("--test-type", dest="test_type", type=str)
     parser.add_argument("--z3", dest="z3", action="store_true", default=False)
     parser.add_argument("--milp", dest="milp", action="store_true", default=False)
     parser.add_argument("--np", dest="np", action="store_true", default=False)
-    parser.add_argument("--adv-attack", dest="adv_attack", action="store_true", default=False)
+    parser.add_argument("--adv", dest="adv", action="store_true", default=False)
 
     return parser.parse_args()
 
@@ -50,9 +51,10 @@ def prepare_log_name(parser:Namespace) -> str:
     elif parser.milp: prefix = "milp"
     elif parser.np:
         prefix = "np"
-        if parser.adv_attack: prefix += "-adv"
+        if parser.adv: prefix += "-adv"
     else: raise ValueError("Invalid solver type.")
     words.append(prefix)
+    words.append(str(parser.num_steps))
     return '_'.join(words)
 
 if __name__ == "__main__":
@@ -69,9 +71,10 @@ if __name__ == "__main__":
                         deltas=(parser.delta_max,),
                         z3=parser.z3,
                         milp=parser.milp,
-                        adv_attack=parser.adv_attack,
+                        adv_attack=parser.adv,
                         n_layer_neurons=(28*28, parser.n_hidden_neurons, 10),
-                        layer_shapes=((28,28), (parser.n_hidden_neurons,1), (10,1))),
+                        layer_shapes=((28,28), (parser.n_hidden_neurons,1), (10,1)),
+                        num_steps=parser.num_steps),
                     test_type=parser.test_type)
     else:
         raise ValueError("Not appropriate arguments.")
