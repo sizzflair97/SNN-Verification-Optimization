@@ -10,7 +10,6 @@ import pulp
 from pulp import LpVariable, LpAffineExpression, lpSum
 from torch import mode
 from z3 import *
-from adv_rob_iris_module import num_steps
 from utils.dictionary_mnist import *
 from utils.encoding_mnist import *
 from utils.config import CFG
@@ -283,6 +282,7 @@ def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig
 
 def run_test(cfg: CFG):
     n_layer_neurons = cfg.n_layer_neurons
+    num_steps = cfg.num_steps
     log_name = f"{cfg.log_name}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"
     logging.basicConfig(filename="log/" + log_name, level=logging.INFO)
     info(cfg)
@@ -340,8 +340,8 @@ def run_test(cfg: CFG):
             sampled_imgs.append(img)
             sampled_labels.append(label)
             orig_preds.append(forward(cfg, weights_list, img, spike_times := []))
-            orig_grad = backward(cfg, weights_list, spike_times, img, label)[1]
-            priority = np.dstack(np.unravel_index(np.abs(orig_grad).ravel().argsort(), orig_grad.shape))[0]
+            input_grad = backward(cfg, weights_list, spike_times, img, label)[1]
+            priority = np.dstack(np.unravel_index(np.abs(input_grad).ravel().argsort(), input_grad.shape))[0]
             search_priority.append(priority)
         info(f"Sampling is completed with {num_procs} samples.")
 
