@@ -340,7 +340,10 @@ def run_test(cfg: CFG):
             sampled_imgs.append(img)
             sampled_labels.append(label)
             orig_preds.append(forward(cfg, weights_list, img, spike_times := []))
-            input_grad = backward(cfg, weights_list, spike_times, img, label)[1]
+            if cfg.adv_attack:
+                input_grad = backward(cfg, weights_list, spike_times, img, label)[1]
+            else:
+                input_grad = np.ones_like(img, dtype=np.float32)
             priority = np.dstack(np.unravel_index(np.abs(input_grad).ravel().argsort()[::-1], input_grad.shape))[0]
             search_priority.append(priority)
         info(f"Sampling is completed with {num_procs} samples.")

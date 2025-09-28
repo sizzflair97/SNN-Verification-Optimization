@@ -5,9 +5,9 @@ deltas=(1)
 test_types=("mnist")
 # solvers=("np" "z3" "milp")
 solvers=("np")
-adv="--adv"
-hidden_neurons=(128 256 384 512)
-num_steps=(256)
+adv=""
+hidden_neurons=(512)
+num_steps=(64 128 192)
 repeat=5
 for hidden_neuron in ${hidden_neurons[@]}
 do
