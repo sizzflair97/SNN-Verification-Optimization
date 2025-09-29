@@ -1,14 +1,13 @@
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 
-encoding="latency"
+encoding="latency" # "baseline" or "latency"
 deltas=(1)
-test_types=("mnist")
-# solvers=("np" "z3" "milp")
-solvers=("np")
-adv=""
-hidden_neurons=(512)
-num_steps=(64 128 192)
-repeat=5
+test_types=("mnist") # "mnist" "fmnist"
+solvers=("np") # "np" "z3" "milp"
+adv="--adv" # "--adv" or ""
+hidden_neurons=(128 256 384 512) # 128 256 384 512
+num_steps=(256) # 64 128 192 256
+repeat=5 # 1 or 5
 for hidden_neuron in ${hidden_neurons[@]}
 do
   for num_steps in ${num_steps[@]}

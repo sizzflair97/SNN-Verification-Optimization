@@ -24,7 +24,7 @@ def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
 
     # Load equations.
     eqn_path = (
-        f"eqn/eqn_{num_steps}_{'_'.join([str(i) for i in n_layer_neurons])}.txt"
+        f"eqn/eqn_{cfg.num_steps}_{'_'.join([str(i) for i in n_layer_neurons])}.txt"
     )
     if not load_expr or not os.path.isfile(eqn_path):
         node_eqns = gen_node_eqns(cfg, weights, spike_times)
@@ -344,7 +344,7 @@ def run_test(cfg: CFG):
                 input_grad = backward(cfg, weights_list, spike_times, img, label)[1]
             else:
                 input_grad = np.ones_like(img, dtype=np.float32)
-            priority = np.dstack(np.unravel_index(np.abs(input_grad).ravel().argsort()[::-1], input_grad.shape))[0]
+            priority = np.dstack(np.unravel_index((-np.abs(input_grad)).ravel().argsort(), input_grad.shape))[0]
             search_priority.append(priority)
         info(f"Sampling is completed with {num_procs} samples.")
 

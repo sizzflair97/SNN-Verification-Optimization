@@ -1,7 +1,6 @@
 from itertools import product
 from tqdm.auto import tqdm
 from z3 import *
-from typing import List
 from typing import cast as typecast
 from .dictionary_iris import *
 from .debug import info
@@ -27,14 +26,14 @@ def gen_spike_times() -> TSpikeTime:
     Returns:
         TSpikeTime: Dictionary including z3 Int terms.
     """
-    spike_times = typecast(TSpikeTime, {})
+    spike_times = TSpikeTime()
     for layer, _ in enumerate(n_layer_neurons):
         for layer_neuron in get_layer_neurons_iter(layer):
             spike_times[layer_neuron, layer] = Int(f'dSpkTime_{layer_neuron}_{layer}')
     return spike_times
 
 def gen_weights(weights_list:TWeightList) -> TWeight:
-    weights = typecast(TWeight, {})
+    weights = TWeight()
     print(num_steps, weights_list[0].shape, weights_list[1].shape)
     for in_layer in range(len(n_layer_neurons)-1):
         layer_weight = weights_list[in_layer]
@@ -46,8 +45,8 @@ def gen_weights(weights_list:TWeightList) -> TWeight:
     info("Weights are generated.")
     return weights
 
-def gen_node_eqns(weights:TWeight, spike_times:TSpikeTime) -> List[BoolRef|bool]:
-    node_eqn:List[BoolRef|bool] = []
+def gen_node_eqns(weights:TWeight, spike_times:TSpikeTime) -> list[BoolRef|bool]:
+    node_eqn = list[BoolRef|bool]()
     for layer, _ in enumerate(n_layer_neurons):
         for neuron in tqdm(get_layer_neurons_iter(layer)):
             # out layer cannot spike in first "layer" steps.
@@ -58,7 +57,7 @@ def gen_node_eqns(weights:TWeight, spike_times:TSpikeTime) -> List[BoolRef|bool]
         for out_neuron_pos in tqdm(range(n_out_layer_neurons),
                                    desc="Generating node equations. Nodes"):
             out_neuron = (out_neuron_pos,0) # We only use position 0 in dimension 1 for layer output.
-            flag:List[BoolRef|bool] = [False]
+            flag:list[BoolRef|bool] = [False]
             # Does not include last step: [0,num_steps-1]
             for timestep in tqdm(range(out_layer, num_steps-1), desc="Timestep", leave=False):
                 time_cumulated_potential = []
@@ -81,13 +80,13 @@ def gen_node_eqns(weights:TWeight, spike_times:TSpikeTime) -> List[BoolRef|bool]
     info("Node equations are generated.")
     return node_eqn
 
-def maximum(v, x) -> List[BoolRef]:
-    eqns:List[BoolRef] = [Or([v == x[i] for i in range(len(x))])] # type: ignore
+def maximum(v, x) -> list[BoolRef]:
+    eqns:list[BoolRef] = [Or([v == x[i] for i in range(len(x))])] # type: ignore
     for i in range(len(x)):
         eqns.append(v >= x[i]) # and it's the greatest
     return eqns
 
-def argmax_left(vector:List[ArithRef], max_index:ArithRef, max_val:ArithRef) -> List[BoolRef]:
+def argmax_left(vector:list[ArithRef], max_index:ArithRef, max_val:ArithRef) -> list[BoolRef]:
     eqns = maximum(max_val, vector)
     n = len(vector)
     for i in range(n):
@@ -100,9 +99,9 @@ def argmax_left(vector:List[ArithRef], max_index:ArithRef, max_val:ArithRef) -> 
 
 # It assumes there is at least one True.
 # it encodes ttfs range too.
-def ttfs(vector:List[BoolRef|bool], ttfs_index:ArithRef) -> List[BoolRef|bool]:
+def ttfs(vector:list[BoolRef|bool], ttfs_index:ArithRef) -> list[BoolRef|bool]:
     n = len(vector)
-    eqns:List[BoolRef|bool] = [typecast(BoolRef, Or([i==ttfs_index for i in range(n)]))]
+    eqns:list[BoolRef|bool] = [typecast(BoolRef, Or([i==ttfs_index for i in range(n)]))]
     for i in range(n):
         eqns.append(
             (i==ttfs_index) == And(

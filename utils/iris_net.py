@@ -4,7 +4,7 @@ import snntorch as snn
 import torch
 
 class IrisNet(nn.Module):
-    def __init__(self):
+    def __init__(self, num_input=4, num_hidden=20, num_output=3, beta=0.9, num_steps=5):
         super().__init__()
 
         # Initialize layers
@@ -13,6 +13,7 @@ class IrisNet(nn.Module):
         self.fc2 = nn.Linear(num_hidden, num_output)
         self.lif2 = snn.Leaky(beta=beta)
         self.mean_spks = 0
+        self.num_steps = num_steps
 
     def forward(self, x):
 
@@ -26,7 +27,7 @@ class IrisNet(nn.Module):
         mem2_rec = []
 
         total_spks = int(x.sum())
-        for step in range(num_steps):
+        for step in range(self.num_steps):
             cur1 = self.fc1(x[step])
             spk1, mem1 = self.lif1(cur1, mem1)
             cur2 = self.fc2(spk1)

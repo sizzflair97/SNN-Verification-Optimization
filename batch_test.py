@@ -1,26 +1,13 @@
 from typing import Literal, LiteralString
 from utils.config import CFG
 from utils.load import load_mnist, load_fmnist
-from adv_rob_iris_module import layer_shapes, n_layer_neurons, run_test as run_test_iris
 from adv_rob_mnist_module import run_test as run_test_mnist
 from argparse import ArgumentParser, Namespace
 from time import strftime, localtime
 
 required_arguments:list[LiteralString] = "test_type prefix".split()
 
-TestType = Literal["iris", "mnist", "fmnist"]
-def run_test(cfg:CFG, test_type:TestType="mnist"):
-    match test_type:
-        case "iris": return run_test_iris(cfg)
-        case "mnist":
-            cfg.subtype = "mnist"
-            cfg.load_data_func = load_mnist
-            return run_test_mnist(cfg)
-        case "fmnist":
-            cfg.subtype = "fmnist"
-            cfg.load_data_func = load_fmnist
-            return run_test_mnist(cfg)
-        case _: raise NotImplementedError(f"Test type must be in {TestType}.")
+TestType = Literal["mnist", "fmnist"]
 
 def parse():
     parser = ArgumentParser()
@@ -63,9 +50,18 @@ if __name__ == "__main__":
     if getattr(parser, "repeat") < 1:
         raise ValueError("repeat must be greater than 0.")
     
+    match parser.test_type:
+        case "mnist":
+            load_data_func = load_mnist
+        case "fmnist":
+            load_data_func = load_fmnist
+        case _: raise NotImplementedError(f"Test type must be in {TestType}.")
+    
     if all(hasattr(parser, s) for s in required_arguments):
         for iteration in range(parser.repeat):
-            run_test(CFG(log_name=prepare_log_name(parser),
+            run_test_mnist(CFG(log_name=prepare_log_name(parser),
+                        subtype=parser.test_type,
+                        load_data_func=load_data_func,
                         seed=parser.seed,
                         num_samples=parser.num_samples,
                         deltas=(parser.delta_max,),
@@ -74,7 +70,6 @@ if __name__ == "__main__":
                         adv_attack=parser.adv,
                         n_layer_neurons=(28*28, parser.n_hidden_neurons, 10),
                         layer_shapes=((28,28), (parser.n_hidden_neurons,1), (10,1)),
-                        num_steps=parser.num_steps),
-                    test_type=parser.test_type)
+                        num_steps=parser.num_steps))
     else:
         raise ValueError("Not appropriate arguments.")
