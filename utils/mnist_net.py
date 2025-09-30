@@ -51,13 +51,18 @@ def backward(cfg:CFG,
              weights_list:TWeightList,
              layers_firing_time:list[np.ndarray[Any, np.dtype[np.float_]]],
              image:TImage,
-             label:int) -> tuple[TWeightList, np.ndarray[Any, np.dtype[np.float_]]]:
+             label:int,
+             relative_target_offset:int=0) -> tuple[TWeightList, np.ndarray[Any, np.dtype[np.float_]]]:
     n_layer_neurons = cfg.n_layer_neurons
     num_steps = cfg.num_steps
     dw = [np.zeros_like(weight) for weight in weights_list]
     target = np.zeros((n_layer_neurons[-1],))
-    # Computing the relative target firing times
     min_firing = min(layers_firing_time[-1])
+    if relative_target_offset <= 0:
+        # Computing the relative target firing times
+        min_firing = max(0, min_firing + relative_target_offset)
+    else:
+        raise ValueError("Relative target offset must be non-positive.")
     if min_firing == num_steps - 1:
         target[:] = min_firing
         target[label] = min_firing - gamma

@@ -302,7 +302,7 @@ def run_test(cfg: CFG):
     else:
         # Recursively find available adversarial attacks.
         def search_perts(
-            img: TImage, delta: int, priority: np.ndarray, idx: int = 0, pert: TImage | None = None
+            img: TImage, delta: int, priority: np.ndarray, grad_sign: np.ndarray, idx: int = 0, pert: TImage | None = None
         ) -> Generator[TImage, None, None]:
             # Initial case
             if pert is None:
@@ -319,19 +319,21 @@ def run_test(cfg: CFG):
                 available_deltas = [*range(
                     -min(orig_time, delta), min((num_steps - 1) - orig_time, delta) + 1
                 )]
-                available_deltas.sort(key=abs, reverse=True)  # Search large perturbations first
+                if grad_sign[loc_2d[0], loc_2d[1]] > 0:
+                    available_deltas.reverse()  # If gradient is negative, try negative perturbation first:
+                                                # to find adversarial examples faster.
                 for delta_at_neuron in available_deltas:
                     new_pert = pert.copy()
                     new_pert[loc_2d[0], loc_2d[1]] += delta_at_neuron
                     yield from search_perts(
-                        img, delta - abs(delta_at_neuron), priority, idx + 1, new_pert
+                        img, delta - abs(delta_at_neuron), priority, grad_sign, idx + 1, new_pert
                     )
 
         samples_no_list = list[int]()
         sampled_imgs = list[TImage]()
         sampled_labels = list[int]()
         orig_preds = list[int]()
-        search_priority = list[np.ndarray[Any, np.dtype[np.int_]]]()
+        search_schedule = list[tuple[np.ndarray[Any, np.dtype[np.int_]], np.ndarray[Any, np.dtype[np.int_]]]]()
         for sample_no in random_sample([*range(len(images))], k=cfg.num_samples):
             info(f"sample {sample_no} is drawn.")
             samples_no_list.append(sample_no)
@@ -341,11 +343,15 @@ def run_test(cfg: CFG):
             sampled_labels.append(label)
             orig_preds.append(forward(cfg, weights_list, img, spike_times := []))
             if cfg.adv_attack:
-                input_grad = backward(cfg, weights_list, spike_times, img, label)[1]
+                input_grad = backward(cfg, weights_list, spike_times, img, label, relative_target_offset=-1)[1]
             else:
                 input_grad = np.ones_like(img, dtype=np.float32)
+            # for row in input_grad:
+            #     for val in row:
+            #         print(f"{val:6.3f}", end=" ")
+            #     print()
             priority = np.dstack(np.unravel_index((-np.abs(input_grad)).ravel().argsort(), input_grad.shape))[0]
-            search_priority.append(priority)
+            search_schedule.append((priority, np.sign(input_grad)))
         info(f"Sampling is completed with {num_procs} samples.")
 
         # For each delta
@@ -353,21 +359,18 @@ def run_test(cfg: CFG):
             global check_sample_direct
 
             def check_sample_direct(
-                sample: tuple[int, TImage, int, int, np.ndarray],
+                sample: tuple[int, TImage, int, int, tuple[np.ndarray,np.ndarray]],
                 weights_list: TWeightList = weights_list,
             ):
-                sample_no, img, label, orig_pred, priority = sample
+                sample_no, img, label, orig_pred, (priority, sign) = sample
 
                 info("Query processing starts")
                 tx = time.time()
-                sat_flag: bool = False
-                adv_spk_times: list[list[np.ndarray[Any, np.dtype[np.float_]]]] = []
-                n_counterexamples = 0
-                
-                for pertd_img in search_perts(img, delta, priority):
+                flag = False
+
+                for pertd_img in search_perts(img, delta, priority, sign):
                     pert_pred = forward(cfg, weights_list, pertd_img, spk_times := [])
                     
-                    adv_spk_times.append(spk_times)
                     last_layer_spk_times = spk_times[-1]
                     not_orig_mask = [
                         x for x in range(n_layer_neurons[-1]) if x != pert_pred
@@ -379,17 +382,17 @@ def run_test(cfg: CFG):
                         last_layer_spk_times[not_orig_mask]
                         <= last_layer_spk_times[orig_pred]
                     ):
-                        sat_flag = True
-                        n_counterexamples += 1
+                        flag = True
+                        break
                 info(f"Checking done in time {time.time() - tx}")
-                if sat_flag:
+                if flag:
                     info(f"Not robust for sample {sample_no} and delta={delta}")
-                elif sat_flag == False:
+                else:
                     info(f"Robust for sample {sample_no} and delta={delta}.")
                 info("")
-                return sat_flag
+                return flag
 
-            samples = zip(samples_no_list, sampled_imgs, sampled_labels, orig_preds, search_priority)
+            samples = zip(samples_no_list, sampled_imgs, sampled_labels, orig_preds, search_schedule)
             if mp:
                 with Pool(num_procs) as pool:
                     pool.map(check_sample_direct, samples)
