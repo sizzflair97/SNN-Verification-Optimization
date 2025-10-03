@@ -8,5 +8,5 @@ solver="np"
 adv="--adv"
 hidden_neuron=128
 num_steps=256
-repeat=20
+repeat=1
 python batch_test.py -p ${encoding} --delta-max ${delta} --test-type ${test_type} --${solver} --num-samples 14 --n-hidden-neurons ${hidden_neuron} --num-steps ${num_steps} ${adv} --repeat ${repeat}

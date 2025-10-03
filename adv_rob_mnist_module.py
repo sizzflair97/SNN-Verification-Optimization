@@ -1,20 +1,21 @@
 from copy import deepcopy
 from multiprocessing import Pool
+from pathlib import Path
 from random import sample as random_sample
 from random import seed
 from typing import Any
 from collections.abc import Generator
 import time, logging, pdb
 import numpy as np
-import pulp
+import pulp, torch
 from pulp import LpVariable, LpAffineExpression, lpSum
-from torch import mode
 from z3 import *
 from utils.dictionary_mnist import *
 from utils.encoding_mnist import *
 from utils.config import CFG
 from utils.debug import info
 from utils.mnist_net import forward, backward, prepare_weights
+from utils.ann import SimpleANN, get_gradient, load_ann
 
 def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
     n_layer_neurons = cfg.n_layer_neurons
@@ -279,7 +280,7 @@ def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig
         print("MILP result:\t", milp_result)
 
     return model, total_time
-
+    
 def run_test(cfg: CFG):
     n_layer_neurons = cfg.n_layer_neurons
     num_steps = cfg.num_steps
@@ -329,6 +330,8 @@ def run_test(cfg: CFG):
                         img, delta - abs(delta_at_neuron), priority, grad_sign, idx + 1, new_pert
                     )
 
+        ann_path = Path("models") / "ann" / f"{cfg.subtype}_mlp_{n_layer_neurons[1]}.pth"
+        ann = load_ann(ann_path, n_hidden_neurons=n_layer_neurons[1])
         samples_no_list = list[int]()
         sampled_imgs = list[TImage]()
         sampled_labels = list[int]()
@@ -343,14 +346,12 @@ def run_test(cfg: CFG):
             sampled_labels.append(label)
             orig_preds.append(forward(cfg, weights_list, img, spike_times := []))
             if cfg.adv_attack:
-                input_grad = backward(cfg, weights_list, spike_times, img, label, relative_target_offset=-1)[1]
+                # input_grad = backward(cfg, weights_list, spike_times, img, label, relative_target_offset=-1)[1]
+                input_grad = get_gradient(ann, torch.tensor(img, dtype=torch.float32).view(1, 28*28), torch.tensor([label], dtype=torch.long)).view(28,28).numpy()
+                priority = np.dstack(np.unravel_index((-np.abs(input_grad)).ravel().argsort(), input_grad.shape))[0]
             else:
                 input_grad = np.ones_like(img, dtype=np.float32)
-            # for row in input_grad:
-            #     for val in row:
-            #         print(f"{val:6.3f}", end=" ")
-            #     print()
-            priority = np.dstack(np.unravel_index((-np.abs(input_grad)).ravel().argsort(), input_grad.shape))[0]
+                priority = np.mgrid[0:28, 0:28].reshape(2, -1).T
             search_schedule.append((priority, np.sign(input_grad)))
         info(f"Sampling is completed with {num_procs} samples.")
 

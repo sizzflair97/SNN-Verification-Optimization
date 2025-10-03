@@ -12,3 +12,13 @@ Temporal model training implementation is from https://github.com/SRKH/S4NN.
 S4NN/S4NN.ipynb - Trains MNIST temporal model.
 S4NN/S4NN_fmnist.ipynb - Trains FashionMNIST temporal model.
 batch_test.py - Perform formal verification about temporal models.
+
+## ANN Train
+```shell
+python -m utils.ann --n-hidden-neurons 512
+```
+
+## SNN Verification
+```shell
+python batch_test.py -p latency --delta-max 2 --test-type mnist --np --num-samples 14 --n-hidden-neurons 512 --num-steps 256 --adv --repeat 1
+```
