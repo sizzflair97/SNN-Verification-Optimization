@@ -13,6 +13,7 @@ def parse():
     parser = ArgumentParser()
     parser.add_argument("-p", "--prefix", dest="prefix", type=str)
     parser.add_argument("--seed", dest="seed", type=int, default=42)
+    parser.add_argument("--manual-indices", dest="manual_indices", type=int, nargs='+', default=None)
     parser.add_argument("--delta-max", dest="delta_max", type=int, default=1)
     parser.add_argument("--repeat", dest="repeat", type=int, default=1)
     parser.add_argument("--num-samples", dest="num_samples", type=int, default=14)
@@ -22,6 +23,7 @@ def parse():
     parser.add_argument("--z3", dest="z3", action="store_true", default=False)
     parser.add_argument("--milp", dest="milp", action="store_true", default=False)
     parser.add_argument("--np", dest="np", action="store_true", default=False)
+    parser.add_argument("--psm", dest="psm", action="store_true", default=False)
     parser.add_argument("--adv", dest="adv", action="store_true", default=False)
 
     return parser.parse_args()
@@ -38,6 +40,7 @@ def prepare_log_name(parser:Namespace) -> str:
     elif parser.milp: prefix = "milp"
     elif parser.np:
         prefix = "np"
+        if parser.psm: prefix += "-psm"
         if parser.adv: prefix += "-adv"
     else: raise ValueError("Invalid solver type.")
     words.append(prefix)
@@ -63,10 +66,12 @@ if __name__ == "__main__":
                         subtype=parser.test_type,
                         load_data_func=load_data_func,
                         seed=parser.seed,
-                        num_samples=parser.num_samples,
+                        manual_indices=parser.manual_indices,
+                        num_samples=parser.num_samples if parser.manual_indices is None else len(parser.manual_indices),
                         deltas=(parser.delta_max,),
                         z3=parser.z3,
                         milp=parser.milp,
+                        prefix_set_match=parser.psm,
                         adv_attack=parser.adv,
                         n_layer_neurons=(28*28, parser.n_hidden_neurons, 10),
                         layer_shapes=((28,28), (parser.n_hidden_neurons,1), (10,1)),

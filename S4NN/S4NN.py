@@ -26,7 +26,7 @@ if GPU:
 else:
     cp=np
 
-cp.cuda.Device(2).use()
+cp.cuda.Device(1).use()
 # Parameter setting
 thr = [100, 100]  # The threshold of hidden and output neurons
 lr = [.2, .2]  # The learning rate of hidden and ouput neurons
@@ -36,9 +36,9 @@ a = [0, 0]  # The lower bound of weight initializations for hidden and ouput neu
 Nepoch = 100  # The maximum number of training epochs
 NumOfClasses = 10  # Number of classes
 Nlayers = 2  # Number of layers
-NhidenNeurons = 512  # Number of hidden neurons
+NhidenNeurons = 20  # Number of hidden neurons
 Dropout = [0, 0]
-tmax = 192 - 1  # Simulatin time
+tmax = 8 - 1  # Simulatin time
 GrayLevels = 255  # Image GrayLevels
 gamma = 3 # The gamma parameter in the relative target firing calculation
 
@@ -98,8 +98,10 @@ SpikeImage = cp.zeros((layerSize[0][0], layerSize[0][1], tmax + 1))  # To keep s
 np.random.seed(0)
 for layer in range(Nlayers):
     W.append(cp.asarray(
+        # np.random.randn(Nnrn[layer], layerSize[layer][0], layerSize[layer][1]) * np.sqrt(tmax/layerSize[layer][0]/layerSize[layer][1])
         (b[layer] - a[layer]) * np.random.random_sample((Nnrn[layer], layerSize[layer][0], layerSize[layer][1])) + a[
-            layer]))
+            layer]
+        ))
     firingTime.append(cp.asarray(np.zeros(Nnrn[layer])))
     Spikes.append(cp.asarray(np.zeros((layerSize[layer + 1][0], layerSize[layer + 1][1], tmax + 1))))
     X.append(cp.asarray(np.mgrid[0:layerSize[layer + 1][0], 0:layerSize[layer + 1][1]]))
@@ -253,7 +255,7 @@ for epoch in tqdm(range(Nepoch), desc=f"{tmax+1} step, {NhidenNeurons} hidden, E
         #     best_perf = testPerf
         save_dir_path = osp.join(
             osp.dirname(__file__),
-            f"../models/{tmax+1}_784_{NhidenNeurons}_{NumOfClasses}")
+            f"../models/ettfs_{tmax+1}_784_{NhidenNeurons}_{NumOfClasses}")
         if not osp.isdir(save_dir_path):
             os.mkdir(save_dir_path)
         if trainPerf > best_perf:

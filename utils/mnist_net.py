@@ -11,15 +11,15 @@ mgrid = np.mgrid[0:28, 0:28]
 def forward(cfg:CFG,
             weights_list:TWeightList,
             img:TImage,
-            layers_firing_time_return:list[np.ndarray[Any, np.dtype[np.float_]]]|None = None,
-            voltage_return:list[np.ndarray[Any, np.dtype[np.float_]]]|None = None) -> int:
+            layers_firing_time_return:list[np.ndarray[Any, np.dtype[np.float64]]]|None = None,
+            voltage_return:list[np.ndarray[Any, np.dtype[np.float64]]]|None = None) -> int:
     # Return by reference at firing_time_ptr.
     n_layer_neurons = cfg.n_layer_neurons
     layer_shapes = cfg.layer_shapes
     num_steps = cfg.num_steps
     SpikeImage = np.zeros((28,28,num_steps+1))
-    firingTime:list[np.ndarray[Any, np.dtype[np.float_]]] = []
-    Spikes:list[np.ndarray[Any, np.dtype[np.float_]]] = []
+    firingTime:list[np.ndarray[Any, np.dtype[np.float64]]] = []
+    Spikes:list[np.ndarray[Any, np.dtype[np.float64]]] = []
     X = []
     for layer, neuron_of_layer in enumerate(n_layer_neurons[1:]):
         firingTime.append(np.asarray(np.zeros(neuron_of_layer)))
@@ -49,10 +49,10 @@ def forward(cfg:CFG,
 gamma = 2
 def backward(cfg:CFG,
              weights_list:TWeightList,
-             layers_firing_time:list[np.ndarray[Any, np.dtype[np.float_]]],
+             layers_firing_time:list[np.ndarray[Any, np.dtype[np.float64]]],
              image:TImage,
              label:int,
-             relative_target_offset:int=0) -> tuple[TWeightList, np.ndarray[Any, np.dtype[np.float_]]]:
+             relative_target_offset:int=0) -> tuple[TWeightList, np.ndarray[Any, np.dtype[np.float64]]]:
     n_layer_neurons = cfg.n_layer_neurons
     num_steps = cfg.num_steps
     dw = [np.zeros_like(weight) for weight in weights_list]

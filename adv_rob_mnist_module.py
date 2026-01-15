@@ -15,7 +15,7 @@ from utils.encoding_mnist import *
 from utils.config import CFG
 from utils.debug import info
 from utils.mnist_net import forward, backward, prepare_weights
-from utils.ann import SimpleANN, get_gradient, load_ann
+# from utils.ann import SimpleANN, get_gradient, load_ann
 
 def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
     n_layer_neurons = cfg.n_layer_neurons
@@ -280,10 +280,103 @@ def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig
         print("MILP result:\t", milp_result)
 
     return model, total_time
-    
+
+# Recursively find available adversarial attacks.
+def search_perts(
+    cfg: CFG,
+    img: TImage,
+    delta: int,
+    priority: np.ndarray,
+    grad_sign: np.ndarray,
+    prefix_set: set[frozenset[tuple[int, int]]],
+    prefix_lengths: set[int],
+    idx: int = 0,
+    pert: TImage | None = None,
+) -> Generator[TImage, None, None]:
+    # Initial case
+    if pert is None:
+        pert = np.zeros_like(img, dtype=img.dtype)
+
+    # Last case
+    if delta == 0:
+        yield img + pert
+    # Search must be terminated at the end of image.
+    elif idx < len(priority):
+        loc_2d = priority[idx]
+        orig_time = int(img[loc_2d[0], loc_2d[1]])
+        # Clamp delta at current location
+        available_deltas = [*range(
+            -min(orig_time, delta), min((cfg.num_steps - 1) - orig_time, delta) + 1
+        )]
+        if grad_sign[loc_2d[0], loc_2d[1]] > 0:
+            available_deltas.reverse()  # If gradient is negative, try negative perturbation first:
+                                        # to find adversarial examples faster.
+        for delta_at_neuron in available_deltas:
+            new_pert = pert.copy()
+            new_pert[loc_2d[0], loc_2d[1]] += delta_at_neuron
+            yield from search_perts(
+                cfg, img, delta - abs(delta_at_neuron), priority, grad_sign, prefix_set, prefix_lengths, idx + 1, new_pert
+            )
+
+# Recursively find available adversarial attacks.
+def search_perts_psm(
+    cfg: CFG,
+    img: TImage,
+    delta: int,
+    priority: np.ndarray,
+    grad_sign: np.ndarray,
+    prefix_set: set[tuple[
+        frozenset[tuple[int, int]],
+        frozenset[tuple[int, int]],
+    ]],
+    prefix_lengths: set[int],
+    idx: int = 0,
+    pert: TImage | None = None,
+) -> Generator[TImage, None, None]:
+    # Initial case
+    if pert is None:
+        pert = np.zeros_like(img, dtype=img.dtype)
+
+    # Last case
+    if delta == 0:
+        img_pert = img + pert
+        prefix = frozenset()
+        t = 0
+        while len(prefix) < max(prefix_lengths):
+            rows, cols = np.nonzero(img_pert <= t)
+            prefix = frozenset(zip(rows, cols))
+            # prefix = frozenset(
+            #     (i, j)
+            #     for i in range(28)
+            #     for j in range(28)
+            #     if img_pert[i, j] <= t
+            # )
+            if prefix in prefix_set:
+                info(f"Prefix {prefix} is in prefix_set, pruning search.")
+                return
+            t += 1
+        else:
+            yield img_pert
+    # Search must be terminated at the end of image.
+    elif idx < len(priority):
+        loc_2d = priority[idx]
+        orig_time = int(img[loc_2d[0], loc_2d[1]])
+        # Clamp delta at current location
+        available_deltas = [*range(
+            -min(orig_time, delta), min((cfg.num_steps - 1) - orig_time, delta) + 1
+        )]
+        if grad_sign[loc_2d[0], loc_2d[1]] > 0:
+            available_deltas.reverse()  # If gradient is negative, try negative perturbation first:
+                                        # to find adversarial examples faster.
+        for delta_at_neuron in available_deltas:
+            new_pert = pert.copy()
+            new_pert[loc_2d[0], loc_2d[1]] += delta_at_neuron
+            yield from search_perts_psm(
+                cfg, img, delta - abs(delta_at_neuron), priority, grad_sign, prefix_set, prefix_lengths, idx + 1, new_pert,
+            )
+
 def run_test(cfg: CFG):
     n_layer_neurons = cfg.n_layer_neurons
-    num_steps = cfg.num_steps
     log_name = f"{cfg.log_name}_{'_'.join(str(l) for l in n_layer_neurons)}_delta{cfg.deltas}.log"
     logging.basicConfig(filename="log/" + log_name, level=logging.INFO)
     info(cfg)
@@ -293,6 +386,9 @@ def run_test(cfg: CFG):
 
     weights_list = prepare_weights(cfg=cfg, subtype=cfg.subtype, load_data_func=cfg.load_data_func)
     images, labels, *_ = cfg.load_data_func(cfg)
+    if cfg.manual_indices is not None:
+        images = images[cfg.manual_indices]
+        labels = labels[cfg.manual_indices]
 
     info("Data is loaded")
 
@@ -301,59 +397,36 @@ def run_test(cfg: CFG):
     elif cfg.milp:
         run_milp(cfg, weights_list=weights_list, images=images)
     else:
-        # Recursively find available adversarial attacks.
-        def search_perts(
-            img: TImage, delta: int, priority: np.ndarray, grad_sign: np.ndarray, idx: int = 0, pert: TImage | None = None
-        ) -> Generator[TImage, None, None]:
-            # Initial case
-            if pert is None:
-                pert = np.zeros_like(img, dtype=img.dtype)
-
-            # Last case
-            if delta == 0:
-                yield img + pert
-            # Search must be terminated at the end of image.
-            elif idx < len(priority):
-                loc_2d = priority[idx]
-                orig_time = int(img[loc_2d[0], loc_2d[1]])
-                # Clamp delta at current location
-                available_deltas = [*range(
-                    -min(orig_time, delta), min((num_steps - 1) - orig_time, delta) + 1
-                )]
-                if grad_sign[loc_2d[0], loc_2d[1]] > 0:
-                    available_deltas.reverse()  # If gradient is negative, try negative perturbation first:
-                                                # to find adversarial examples faster.
-                for delta_at_neuron in available_deltas:
-                    new_pert = pert.copy()
-                    new_pert[loc_2d[0], loc_2d[1]] += delta_at_neuron
-                    yield from search_perts(
-                        img, delta - abs(delta_at_neuron), priority, grad_sign, idx + 1, new_pert
-                    )
-
-        ann_path = Path("models") / "ann" / f"{cfg.subtype}_mlp_{n_layer_neurons[1]}.pth"
-        ann = load_ann(ann_path, n_hidden_neurons=n_layer_neurons[1])
+        # ann_path = Path("models") / "ann" / f"{cfg.subtype}_mlp_{n_layer_neurons[1]}.pth"
+        # ann = load_ann(ann_path, n_hidden_neurons=n_layer_neurons[1])
         samples_no_list = list[int]()
         sampled_imgs = list[TImage]()
         sampled_labels = list[int]()
         orig_preds = list[int]()
-        search_schedule = list[tuple[np.ndarray[Any, np.dtype[np.int_]], np.ndarray[Any, np.dtype[np.int_]]]]()
+        search_schedule = list[tuple[np.ndarray[Any, np.dtype[np.int64]], np.ndarray[Any, np.dtype[np.int64]]]]()
+        
         for sample_no in random_sample([*range(len(images))], k=cfg.num_samples):
-            info(f"sample {sample_no} is drawn.")
-            samples_no_list.append(sample_no)
             img: TImage = images[sample_no]
             label = labels[sample_no]
+            orig_pred = forward(cfg, weights_list, img, layers_firing_time := [])
+            if len(np.argwhere(layers_firing_time[-1] == np.min(layers_firing_time[-1]))[0]) != 1:
+                info(f"Multiple output neurons fired first for sample {sample_no}, skipping this sample.")
+                continue
+            
+            info(f"sample {sample_no} is drawn.")
+            samples_no_list.append(sample_no)
+            orig_preds.append(orig_pred)
             sampled_imgs.append(img)
             sampled_labels.append(label)
-            orig_preds.append(forward(cfg, weights_list, img, spike_times := []))
             if cfg.adv_attack:
-                # input_grad = backward(cfg, weights_list, spike_times, img, label, relative_target_offset=-1)[1]
-                input_grad = get_gradient(ann, torch.tensor(img, dtype=torch.float32).view(1, 28*28), torch.tensor([label], dtype=torch.long)).view(28,28).numpy()
+                input_grad = backward(cfg, weights_list, layers_firing_time, img, label, relative_target_offset=-1)[1]
+                # input_grad = get_gradient(ann, torch.tensor(img, dtype=torch.float32).view(1, 28*28), torch.tensor([label], dtype=torch.long)).view(28,28).numpy()
                 priority = np.dstack(np.unravel_index((-np.abs(input_grad)).ravel().argsort(), input_grad.shape))[0]
             else:
                 input_grad = np.ones_like(img, dtype=np.float32)
-                priority = np.mgrid[0:28, 0:28].reshape(2, -1).T
+                priority = np.mgrid[0:img.shape[0], 0:img.shape[1]].reshape(2, -1).T
             search_schedule.append((priority, np.sign(input_grad)))
-        info(f"Sampling is completed with {num_procs} samples.")
+        info(f"Sampling is completed with {len(samples_no_list)} samples.")
 
         # For each delta
         for delta in cfg.deltas:
@@ -364,12 +437,14 @@ def run_test(cfg: CFG):
                 weights_list: TWeightList = weights_list,
             ):
                 sample_no, img, label, orig_pred, (priority, sign) = sample
-
                 info("Query processing starts")
                 tx = time.time()
                 flag = False
 
-                for pertd_img in search_perts(img, delta, priority, sign):
+                prefix_set = set[frozenset[tuple[int, int]]]()
+                prefix_lengths = {0}
+                pert_gen = search_perts_psm if cfg.prefix_set_match else search_perts
+                for pertd_img in pert_gen(cfg, img, delta, priority, sign, prefix_set, prefix_lengths):
                     pert_pred = forward(cfg, weights_list, pertd_img, spk_times := [])
                     
                     last_layer_spk_times = spk_times[-1]
@@ -384,7 +459,20 @@ def run_test(cfg: CFG):
                         <= last_layer_spk_times[orig_pred]
                     ):
                         flag = True
+                        # np.set_printoptions(linewidth=150)
+                        # info(f"Not robust for sample {sample_no} with perturbed image.")
+                        # info(pertd_img)
+                        # info(f"Perturbation:\n{pertd_img - img}")
+                        # breakpoint()
                         break
+                    
+                    if cfg.prefix_set_match:
+                        # Update prefix set
+                        rows, cols = np.nonzero(pertd_img <= last_layer_spk_times[orig_pred] - len(cfg.n_layer_neurons) + 1)
+                        prefix = frozenset(zip(rows, cols))
+                        prefix_set.add(prefix)
+                        prefix_lengths.add(len(prefix))
+                    
                 info(f"Checking done in time {time.time() - tx}")
                 if flag:
                     info(f"Not robust for sample {sample_no} and delta={delta}")

@@ -13,3 +13,5 @@ eqn/eqn_64_784_128_10.txt
 PertExample.pdf
 out.pdf
 **/*.zip
+src/
+venv/

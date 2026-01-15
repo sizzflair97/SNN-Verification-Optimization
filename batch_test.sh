@@ -3,7 +3,7 @@ trap "kill 0" SIGINT
 
 encoding="latency" # "baseline" or "latency", only changes the name of the output log.
 deltas=(1)
-test_types=("mnist") # "mnist" "fmnist"
+test_types=("fmnist") # "mnist" "fmnist"
 solvers=("milp") # "np" "z3" "milp"
 advs=("") # "--adv" or ""
 hidden_neurons=(20) # 128 256 384 512

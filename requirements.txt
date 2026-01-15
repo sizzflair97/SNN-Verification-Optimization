@@ -7,3 +7,6 @@ z3-solver==4.8.16.0
 scikit-learn
 python-mnist
 pulp
+spikingjelly
+nir
+nirtorch

@@ -1,25 +1,15 @@
 import snntorch as snn
-from snntorch import spikeplot as splt
-from snntorch import spikegen
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
-from collections import defaultdict
-from z3 import *
-from tqdm.auto import tqdm
-import time
 
-import matplotlib.pyplot as plt
 import numpy as np
-import itertools
 
 batch_size = 128
 data_path = '../data/mnist/'
 location = '..'
-neurons_in_layers = [28*28, 20, 10]
-num_steps = 8
+neurons_in_layers = [28*28, 10, 10]
+num_steps = 5
 beta = 0.95
 dtype = torch.float
 delta = [1]

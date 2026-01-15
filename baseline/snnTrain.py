@@ -1,5 +1,3 @@
-import snntorch as snn
-from snntorch import spikeplot as splt
 from snntorch import spikegen
 
 import torch
@@ -8,13 +6,20 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from collections import defaultdict
 from z3 import *
-from mnist_net import *
+from mnist_net import (
+    data_path,
+    batch_size,
+    neurons_in_layers,
+    beta,
+    num_steps,
+    dtype,
+    location,
+    Net,
+    )
 from tqdm.auto import tqdm
 import time
-
-import matplotlib.pyplot as plt
 import numpy as np
-import itertools
+from tqdm.auto import tqdm
 
 transform = transforms.Compose([
             transforms.Resize((28, 28)),
@@ -26,41 +31,42 @@ mnist_train = datasets.MNIST(data_path, train=True, download=True, transform=tra
 mnist_test = datasets.MNIST(data_path, train=False, download=True, transform=transform)
 
 train_loader = DataLoader(mnist_train, batch_size=batch_size, shuffle=True, drop_last=True)
-test_loader = DataLoader(mnist_test, batch_size=batch_size, shuffle=True, drop_last=True)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 if __name__ == '__main__':
 
 
     # Load the network onto CUDA if available
-    net = Net(neurons_in_layers, loss_value=beta)
+    net = Net(neurons_in_layers, loss_value=beta).to(device)
 
-    load = True
+    load = False
     loss = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(net.parameters(), lr=5e-4, betas=(0.9, 0.999))
 
-    num_epochs = 1
+    num_epochs = 20
     loss_hist = []
     test_loss_hist = []
     counter = 0
     if not load:
         # Outer training loop
-        for epoch in range(num_epochs):
+        for epoch in tqdm(range(num_epochs)):
             iter_counter = 0
             train_batch = iter(train_loader)
 
             # Minibatch training loop
-            for data, targets in train_batch:
-                data = data
-                targets = targets
+            for data, targets in tqdm(train_batch, leave=False, total=len(train_loader)):
+                data = data.to(device)
+                targets = targets.to(device)
 
-                spike_data = spikegen.rate(data, num_steps=num_steps)
+                spike_data = spikegen.rate(data, num_steps=num_steps).to(device)
 
                 # forward pass
                 net.train()
                 spk_rec, mem_rec = net(spike_data.view(num_steps, batch_size, -1), return_all=True)
 
                 # initialize the loss & sum over time
-                loss_val = torch.zeros((1), dtype=dtype)
+                loss_val = torch.zeros((1), dtype=dtype, device=device)
                 for step in range(num_steps):
                     loss_val += loss(mem_rec[step][-1], targets)
 
@@ -82,9 +88,9 @@ if __name__ == '__main__':
 
     total = 0
     correct = 0
-    test_batch_size = 1
+    test_batch_size = 512
     # drop_last switched to False to keep all samples
-    test_loader = DataLoader(mnist_train, batch_size=test_batch_size, shuffle=True, drop_last=False)
+    test_loader = DataLoader(mnist_train, batch_size=test_batch_size, shuffle=True, drop_last=True)
     test_log = True
     tt = []
     if test_log:
@@ -93,15 +99,15 @@ if __name__ == '__main__':
             c = 1
             for data, targets in tqdm(test_loader):
                 t = time.time()
-                data = data
-                targets = targets
+                data = data.to(device)
+                targets = targets.to(device)
 
-                test_spike_data = spikegen.rate(data, num_steps=num_steps)
+                test_spike_data = spikegen.rate(data, num_steps=num_steps).to(device)
 
                 # forward pass
                 test_spk, _ = net(test_spike_data.view(num_steps, test_batch_size, -1))
                 # calculate total accuracy
-                predicted = torch.cat(test_spk).sum(dim=0).argmax()
+                predicted = torch.stack(test_spk, dim=0).sum(dim=0).argmax(dim=-1)
                 total += targets.size(0)
                 correct += (predicted == targets).sum().item()
                 tt.append(time.time()-t)
@@ -120,7 +126,7 @@ if __name__ == '__main__':
             spike_c[(i, j)] = 1
 
     for _ in range(test_inputs):
-        inp = torch.tensor(np.random.randint(0, 2, (num_steps, neurons_in_layers[0])), dtype=torch.float)
+        inp = torch.tensor(np.random.randint(0, 2, (num_steps, neurons_in_layers[0])), dtype=torch.float, device=device)
         a, b = net(inp, return_all=True)
         for ts in a:
             for j, spi in enumerate(ts):
