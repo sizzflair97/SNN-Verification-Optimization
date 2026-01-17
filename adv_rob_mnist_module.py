@@ -15,7 +15,13 @@ from utils.encoding_mnist import *
 from utils.config import CFG
 from utils.debug import info
 from utils.mnist_net import forward, backward, prepare_weights
+
+import sys
+
+sys.setrecursionlimit(3000)
+
 # from utils.ann import SimpleANN, get_gradient, load_ann
+
 
 def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
     n_layer_neurons = cfg.n_layer_neurons
@@ -24,9 +30,7 @@ def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
     weights = gen_weights(cfg, weights_list)
 
     # Load equations.
-    eqn_path = (
-        f"eqn/eqn_{cfg.num_steps}_{'_'.join([str(i) for i in n_layer_neurons])}.txt"
-    )
+    eqn_path = f"eqn/eqn_{cfg.num_steps}_{'_'.join([str(i) for i in n_layer_neurons])}.txt"
     if not load_expr or not os.path.isfile(eqn_path):
         node_eqns = gen_node_eqns(cfg, weights, spike_times)
         S.add(node_eqns)
@@ -63,12 +67,8 @@ def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
 
             for in_neuron in get_layer_neurons_iter(cfg, input_layer):
                 # Try to avoid using abs, as it makes z3 extremely slow.
-                delta_pos += relu(
-                    spike_times[in_neuron, input_layer] - int(img[in_neuron])
-                )
-                delta_neg += relu(
-                    int(img[in_neuron]) - spike_times[in_neuron, input_layer]
-                )
+                delta_pos += relu(spike_times[in_neuron, input_layer] - int(img[in_neuron]))
+                delta_neg += relu(int(img[in_neuron]) - spike_times[in_neuron, input_layer])
             prop.append((delta_pos + delta_neg) <= delta)
             info(f"Inputs Property Done in {time.time() - tx} sec")
 
@@ -81,10 +81,7 @@ def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
                     # It is equal to Not(spike_times[out_neuron, last_layer] >= spike_times[orig_neuron, last_layer]),
                     # we are checking p and Not(q) and q = And(q1, q2, ..., qn)
                     # so Not(q) is Or(Not(q1), Not(q2), ..., Not(qn))
-                    op.append(
-                        spike_times[out_neuron, last_layer]
-                        <= spike_times[orig_neuron, last_layer]
-                    )
+                    op.append(spike_times[out_neuron, last_layer] <= spike_times[orig_neuron, last_layer])
             op = Or(op)
             info(f"Output Property Done in {time.time() - tx} sec")
 
@@ -106,9 +103,7 @@ def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
             elif result == unsat:
                 info(f"Robust for sample {sample_no} and delta={delta}")
             else:
-                info(
-                    f"Unknown at sample {sample_no} for reason {S_instance.reason_unknown()}"
-                )
+                info(f"Unknown at sample {sample_no} for reason {S_instance.reason_unknown()}")
             info("")
             return result
 
@@ -124,7 +119,8 @@ def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
 
     info("")
 
-def sample_images_and_predictions(cfg:CFG, weights_list:TWeightList, images: TImageBatch):
+
+def sample_images_and_predictions(cfg: CFG, weights_list: TWeightList, images: TImageBatch):
     samples_no_list = list[int]()
     sampled_imgs = list[TImage]()
     orig_preds = list[int]()
@@ -137,7 +133,14 @@ def sample_images_and_predictions(cfg:CFG, weights_list:TWeightList, images: TIm
     info(f"Sampling is completed with {num_procs} samples.")
     return samples_no_list, sampled_imgs, orig_preds
 
-def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch, MAP = {pulp.LpStatusOptimal: "Not Robust", pulp.LpStatusInfeasible: "Robust"}):
+
+def run_milp(
+    cfg: CFG,
+    *,
+    weights_list: TWeightList,
+    images: TImageBatch,
+    MAP={pulp.LpStatusOptimal: "Not Robust", pulp.LpStatusInfeasible: "Robust"},
+):
     samples_no_list, sampled_imgs, orig_preds = sample_images_and_predictions(cfg, weights_list, images)
     for delta in cfg.deltas:
         info(f"Delta: {delta}")
@@ -145,7 +148,10 @@ def run_milp(cfg: CFG, *, weights_list:TWeightList, images: TImageBatch, MAP = {
             _model, _tx = run_milp_single(cfg, weights_list, img, orig_pred, delta=delta)
             info(f"Sample {sample_no}\t|\ttime: {_tx:.13f}\t|\tstatus: {MAP[_model.status]}")
 
-def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig:int, delta:int = 1) -> tuple[pulp.LpProblem, float]:
+
+def run_milp_single(
+    cfg: CFG, weights_list: TWeightList, s0_orig: TImage, pred_orig: int, delta: int = 1
+) -> tuple[pulp.LpProblem, float]:
     n_layer_neurons = cfg.n_layer_neurons
     num_steps = cfg.num_steps
     tau = 1  # synaptic delay
@@ -158,7 +164,7 @@ def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig
     spike_times = dict[tuple[NodeIdx, LayerIdx], LpVariable]()  # s[l,n] = spike time
     neuron_perturbation = dict[NodeIdx, LpVariable]()  # d_n = perturbation for neuron n
     for neuron in get_layer_neurons_iter(cfg, 0):
-        spike_times[neuron, 0] = LpVariable(f"s_0_{neuron}", 0, num_steps - 1, cat=pulp.LpInteger) # Xi_1
+        spike_times[neuron, 0] = LpVariable(f"s_0_{neuron}", 0, num_steps - 1, cat=pulp.LpInteger)  # Xi_1
         # Begin Xi_7
         neuron_perturbation[neuron] = LpVariable(f"d_{neuron}", 0, num_steps - 1, cat=pulp.LpInteger)
         model += spike_times[neuron, 0] - s0_orig[neuron] <= neuron_perturbation[neuron]
@@ -168,7 +174,7 @@ def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig
 
     # Intermediate variables
     p = dict[Neuron_Layer_Time, LpAffineExpression]()  # p[l,t,n] = potential at layer l, time t, neuron n
-    flag = dict[Neuron_Layer_Time, LpVariable]() # a[l,t,n] = activation flag for neuron n at layer l, time t
+    flag = dict[Neuron_Layer_Time, LpVariable]()  # a[l,t,n] = activation flag for neuron n at layer l, time t
     activated = dict[Neuron_Layer_Time, LpVariable]()  # (p[l,t,n] >= threshold)
     cond = dict[Neuron_Layer_Time, LpVariable]()  # cond[l,t,n] = If (s_{l,n} ≤ t, 1, 0)
 
@@ -176,17 +182,23 @@ def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig
     for post_layer in range(1, len(n_layer_neurons)):
         for post_neuron in get_layer_neurons_iter(cfg, post_layer):
             assert tau * post_layer <= num_steps - 1, "Too high synaptic delay."
-            spike_times[post_neuron, post_layer] = LpVariable(f"s_{post_neuron}_{post_layer}", tau * post_layer, num_steps - 1, cat=pulp.LpInteger) # Xi_1
+            spike_times[post_neuron, post_layer] = LpVariable(
+                f"s_{post_neuron}_{post_layer}", tau * post_layer, num_steps - 1, cat=pulp.LpInteger
+            )  # Xi_1
             for t in range(num_steps):
                 flag[post_neuron, post_layer, t] = LpVariable(f"a_{post_neuron}_{post_layer}_{t}", cat=pulp.LpBinary)
-                activated[post_neuron, post_layer, t] = LpVariable(f"(p>=theta)_{post_neuron}_{post_layer}_{t}", cat=pulp.LpBinary)
-    
+                activated[post_neuron, post_layer, t] = LpVariable(
+                    f"(p>=theta)_{post_neuron}_{post_layer}_{t}", cat=pulp.LpBinary
+                )
+
     # Condition variables for previous layers, used in Xi_3
     for prev_layer in range(len(n_layer_neurons) - 1):
         for prev_neuron in get_layer_neurons_iter(cfg, prev_layer):
             _spike_time = spike_times[prev_neuron, prev_layer]
             for t in range(num_steps):
-                _cond = cond[prev_neuron, prev_layer, t] = LpVariable(f"If_{prev_neuron}_{prev_layer}_{t}", cat=pulp.LpBinary)
+                _cond = cond[prev_neuron, prev_layer, t] = LpVariable(
+                    f"If_{prev_neuron}_{prev_layer}_{t}", cat=pulp.LpBinary
+                )
                 model += t + (1 - _cond) * M >= _spike_time
                 model += t + 1 - _cond * M <= _spike_time
                 # model += _spike_time >= t - tau + EPS - _cond * M
@@ -201,20 +213,20 @@ def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig
                 expr = LpAffineExpression()
                 for prev_neuron in get_layer_neurons_iter(cfg, prev_layer):
                     weight = weights_list[prev_layer][post_neuron[0], prev_neuron[0], prev_neuron[1]]
-                    expr += weight * cond[prev_neuron, prev_layer, t-tau]
+                    expr += weight * cond[prev_neuron, prev_layer, t - tau]
                 p[post_neuron, post_layer, t] = expr
                 ### End Xi_3
-                
+
             ### Begin Xi_4
             # Big-M method for spike condition
-            
+
             for t_prev in range(num_steps - 1):
                 _p = p[post_neuron, post_layer, t_prev]
                 _activated = activated[post_neuron, post_layer, t_prev]
-                model += _p <= threshold - EPS + _activated * M # Not active
-                model += _p >= threshold - (1 - _activated) * M # Active
+                model += _p <= threshold - EPS + _activated * M  # Not active
+                model += _p >= threshold - (1 - _activated) * M  # Active
             model += activated[post_neuron, post_layer, num_steps - 1] == 1
-            
+
             model += flag[post_neuron, post_layer, 0] == 0
             for t in range(1, num_steps):
                 _flag = flag[post_neuron, post_layer, t]
@@ -245,13 +257,14 @@ def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig
             ### End Xi_5, Xi_6
 
     target_spike_time = spike_times[(pred_orig, 0), len(n_layer_neurons) - 1]
-    
+
     ### Begin Xi_8
     # Robustness constraint: output neuron 1 should not spike earlier than neuron 0
     not_robust = list[LpVariable]()
     for out_neuron in get_layer_neurons_iter(cfg, len(n_layer_neurons) - 1):
-        if out_neuron[0] == pred_orig: continue
-        
+        if out_neuron[0] == pred_orig:
+            continue
+
         _other_spike_time = spike_times[out_neuron, len(n_layer_neurons) - 1]
         # Ensure that output neuron 1 spikes at least 1 time step after output neuron 0
         _not_robust = LpVariable(f"not_robust_{out_neuron}", cat=pulp.LpBinary)
@@ -266,12 +279,12 @@ def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig
 
     # Solve
     solver = pulp.PULP_CBC_CMD(msg=True, logPath="log/milp.log")
-    
+
     tx = time.time()
     model.solve(solver)
     total_time = time.time() - tx
-    
-    if None: # For debug
+
+    if None:  # For debug
         forward(weights_list, s0_orig, original_result := list(), voltage_return := list())
         milp_result = list()
         milp_result.append([spike_times[neuron, 1].varValue for neuron in get_layer_neurons_iter(1)])
@@ -280,6 +293,7 @@ def run_milp_single(cfg:CFG, weights_list:TWeightList, s0_orig:TImage, pred_orig
         print("MILP result:\t", milp_result)
 
     return model, total_time
+
 
 # Recursively find available adversarial attacks.
 def search_perts(
@@ -305,18 +319,25 @@ def search_perts(
         loc_2d = priority[idx]
         orig_time = int(img[loc_2d[0], loc_2d[1]])
         # Clamp delta at current location
-        available_deltas = [*range(
-            -min(orig_time, delta), min((cfg.num_steps - 1) - orig_time, delta) + 1
-        )]
+        available_deltas = [*range(-min(orig_time, delta), min((cfg.num_steps - 1) - orig_time, delta) + 1)]
         if grad_sign[loc_2d[0], loc_2d[1]] > 0:
             available_deltas.reverse()  # If gradient is negative, try negative perturbation first:
-                                        # to find adversarial examples faster.
+            # to find adversarial examples faster.
         for delta_at_neuron in available_deltas:
             new_pert = pert.copy()
             new_pert[loc_2d[0], loc_2d[1]] += delta_at_neuron
             yield from search_perts(
-                cfg, img, delta - abs(delta_at_neuron), priority, grad_sign, prefix_set, prefix_lengths, idx + 1, new_pert
+                cfg,
+                img,
+                delta - abs(delta_at_neuron),
+                priority,
+                grad_sign,
+                prefix_set,
+                prefix_lengths,
+                idx + 1,
+                new_pert,
             )
+
 
 # Recursively find available adversarial attacks.
 def search_perts_psm(
@@ -325,10 +346,12 @@ def search_perts_psm(
     delta: int,
     priority: np.ndarray,
     grad_sign: np.ndarray,
-    prefix_set: set[tuple[
-        frozenset[tuple[int, int]],
-        frozenset[tuple[int, int]],
-    ]],
+    prefix_set: set[
+        tuple[
+            frozenset[tuple[int, int]],
+            frozenset[tuple[int, int]],
+        ]
+    ],
     prefix_lengths: set[int],
     idx: int = 0,
     pert: TImage | None = None,
@@ -362,18 +385,46 @@ def search_perts_psm(
         loc_2d = priority[idx]
         orig_time = int(img[loc_2d[0], loc_2d[1]])
         # Clamp delta at current location
-        available_deltas = [*range(
-            -min(orig_time, delta), min((cfg.num_steps - 1) - orig_time, delta) + 1
-        )]
+        available_deltas = [*range(-min(orig_time, delta), min((cfg.num_steps - 1) - orig_time, delta) + 1)]
         if grad_sign[loc_2d[0], loc_2d[1]] > 0:
             available_deltas.reverse()  # If gradient is negative, try negative perturbation first:
-                                        # to find adversarial examples faster.
+            # to find adversarial examples faster.
         for delta_at_neuron in available_deltas:
             new_pert = pert.copy()
             new_pert[loc_2d[0], loc_2d[1]] += delta_at_neuron
             yield from search_perts_psm(
-                cfg, img, delta - abs(delta_at_neuron), priority, grad_sign, prefix_set, prefix_lengths, idx + 1, new_pert,
+                cfg,
+                img,
+                delta - abs(delta_at_neuron),
+                priority,
+                grad_sign,
+                prefix_set,
+                prefix_lengths,
+                idx + 1,
+                new_pert,
             )
+
+
+def get_bottom_two_diff(nums):
+    # 요소가 2개 미만인 경우 처리
+    if len(nums) < 2:
+        return None
+
+    # 초기값을 무한대(infinity)로 설정
+    first_min = second_min = float("inf")
+
+    for n in nums:
+        if n < first_min:
+            # 새로운 최솟값을 찾으면 기존 최솟값은 두 번째가 됨
+            second_min = first_min
+            first_min = n
+        elif n < second_min:
+            # 최솟값보다는 크지만 두 번째보다는 작은 경우
+            second_min = n
+
+    # 두 번째 작은 값에서 가장 작은 값을 뺌 (양수 결과)
+    return second_min - first_min
+
 
 def run_test(cfg: CFG):
     n_layer_neurons = cfg.n_layer_neurons
@@ -404,7 +455,7 @@ def run_test(cfg: CFG):
         sampled_labels = list[int]()
         orig_preds = list[int]()
         search_schedule = list[tuple[np.ndarray[Any, np.dtype[np.int64]], np.ndarray[Any, np.dtype[np.int64]]]]()
-        
+
         for sample_no in random_sample([*range(len(images))], k=cfg.num_samples):
             img: TImage = images[sample_no]
             label = labels[sample_no]
@@ -412,7 +463,7 @@ def run_test(cfg: CFG):
             if len(np.argwhere(layers_firing_time[-1] == np.min(layers_firing_time[-1]))[0]) != 1:
                 info(f"Multiple output neurons fired first for sample {sample_no}, skipping this sample.")
                 continue
-            
+
             info(f"sample {sample_no} is drawn.")
             samples_no_list.append(sample_no)
             orig_preds.append(orig_pred)
@@ -424,7 +475,7 @@ def run_test(cfg: CFG):
                 priority = np.dstack(np.unravel_index((-np.abs(input_grad)).ravel().argsort(), input_grad.shape))[0]
             else:
                 input_grad = np.ones_like(img, dtype=np.float32)
-                priority = np.mgrid[0:img.shape[0], 0:img.shape[1]].reshape(2, -1).T
+                priority = np.mgrid[0 : img.shape[0], 0 : img.shape[1]].reshape(2, -1).T
             search_schedule.append((priority, np.sign(input_grad)))
         info(f"Sampling is completed with {len(samples_no_list)} samples.")
 
@@ -433,53 +484,126 @@ def run_test(cfg: CFG):
             global check_sample_direct
 
             def check_sample_direct(
-                sample: tuple[int, TImage, int, int, tuple[np.ndarray,np.ndarray]],
+                sample: tuple[int, TImage, int, int, tuple[np.ndarray, np.ndarray]],
                 weights_list: TWeightList = weights_list,
             ):
                 sample_no, img, label, orig_pred, (priority, sign) = sample
-                info("Query processing starts")
+                info("BnB-based Query processing (Dual-side Perturbation)")
                 tx = time.time()
-                flag = False
 
-                prefix_set = set[frozenset[tuple[int, int]]]()
-                prefix_lengths = {0}
-                pert_gen = search_perts_psm if cfg.prefix_set_match else search_perts
-                for pertd_img in pert_gen(cfg, img, delta, priority, sign, prefix_set, prefix_lengths):
-                    pert_pred = forward(cfg, weights_list, pertd_img, spk_times := [])
-                    
-                    last_layer_spk_times = spk_times[-1]
-                    not_orig_mask = [
-                        x for x in range(n_layer_neurons[-1]) if x != pert_pred
-                    ]
-                    # It is equal to Not(spike_times[out_neuron, last_layer] >= spike_times[orig_neuron, last_layer]),
-                    # we are checking p and Not(q) and q = And(q1, q2, ..., qn)
-                    # so Not(q) is Or(Not(q1), Not(q2), ..., Not(qn))
-                    if np.any(
-                        last_layer_spk_times[not_orig_mask]
-                        <= last_layer_spk_times[orig_pred]
-                    ):
-                        flag = True
-                        # np.set_printoptions(linewidth=150)
-                        # info(f"Not robust for sample {sample_no} with perturbed image.")
-                        # info(pertd_img)
-                        # info(f"Perturbation:\n{pertd_img - img}")
-                        # breakpoint()
-                        break
-                    
-                    if cfg.prefix_set_match:
-                        # Update prefix set
-                        rows, cols = np.nonzero(pertd_img <= last_layer_spk_times[orig_pred] - len(cfg.n_layer_neurons) + 1)
-                        prefix = frozenset(zip(rows, cols))
-                        prefix_set.add(prefix)
-                        prefix_lengths.add(len(prefix))
-                    
+                num_classes = weights_list[-1].shape[0]
+                found_adversarial = [False]
+
+                # 메모이제이션 테이블: (pos, eps, allow_pos) -> min_d
+                memo = {}
+
+                def bnb_dfs(current_img, pixel_pos, remaining_eps, allow_positive):
+
+                    # print(pixel_pos, remaining_eps, allow_positive)
+
+                    if found_adversarial[0]:
+                        return
+
+                    # [Memo Check] 이미 계산된 적이 있고, 현재 예산보다 더 넉넉한 상태에서
+                    # 안전함이 증명되었다면 더 계산할 필요 없음
+                    state = (current_img.tobytes(), pixel_pos, remaining_eps, allow_positive)
+                    if state in memo:
+                        if memo[state]:
+                            print("Pruned by memoization.")
+                            return
+
+                    # [STEP 1] 현재 상태의 출력 시간 확인
+                    current_spks = []
+                    forward(cfg, weights_list, current_img, current_spks)
+                    current_last_layer = current_spks[-1]
+
+                    target_time = current_last_layer[orig_pred]
+                    min_non_target_time = np.min([current_last_layer[i] for i in range(num_classes) if i != orig_pred])
+
+                    if min_non_target_time <= target_time:
+                        print("Adversarial found at leaf node.")
+                        found_adversarial[0] = True
+                        return
+
+                    # [핵심] Pruning 적용: 이 경로가 음수 섭동 전용(False)으로 확정된 경우
+                    if not allow_positive:
+                        d = min_non_target_time - target_time
+                        if d > remaining_eps:
+                            memo[state] = True
+                            return  # 단조성이 보장된 영역에서의 안전한 가지치기
+
+                    if pixel_pos == len(priority):
+                        # print("Reached leaf node without finding adversarial.")
+                        return
+
+                    # [STEP 4] Branching (양수/음수 섭동 모두 고려)
+                    idx_x, idx_y = priority[pixel_pos]
+                    orig_val = current_img[idx_x, idx_y]
+                    max_t = cfg.num_steps  # SNN 시뮬레이션의 최대 타임스텝
+
+                    # ---------------------------------------------------------
+                    # [경우의 수 나누기 - Branching]
+                    # ---------------------------------------------------------
+
+                    # Case 1: 현재 픽셀에 섭동을 주지 않음 (No Perturbation)
+                    # 여기서 중요! allow_positive가 True였다면, 두 가지 미래를 모두 탐색해야 함
+                    if allow_positive:
+                        # 1-A. 앞으로도 계속 양수 섭동 가능성을 열어두는 경로
+                        bnb_dfs(current_img.copy(), pixel_pos + 1, remaining_eps, True)
+                        if found_adversarial[0]:
+                            return
+
+                        # 1-B. [전환점] 지금부터는 절대 양수 섭동을 하지 않겠다고 선언하는 경로 (Pruning 활성화)
+                        bnb_dfs(current_img.copy(), pixel_pos + 1, remaining_eps, False)
+                    else:
+                        # 이미 False라면 선택권 없이 False로 진행
+                        bnb_dfs(current_img.copy(), pixel_pos + 1, remaining_eps, False)
+
+                    if found_adversarial[0]:
+                        return
+
+                    # Case 2: 음수 섭동 (Negative Perturbation)
+                    if remaining_eps >= 1:
+                        for v in range(int(orig_val)):
+                            cost = orig_val - v
+                            if remaining_eps >= cost:
+                                next_img = current_img.copy()
+                                next_img[idx_x, idx_y] = v
+                                # 위와 마찬가지로 음수 섭동 후에도 양수 가능성을 유지할지/닫을지 결정
+                                if allow_positive:
+                                    bnb_dfs(next_img, pixel_pos + 1, remaining_eps - cost, True)
+                                    bnb_dfs(next_img, pixel_pos + 1, remaining_eps - cost, False)
+                                else:
+                                    bnb_dfs(next_img, pixel_pos + 1, remaining_eps - cost, False)
+                                if found_adversarial[0]:
+                                    break
+
+                    # Case 3: 양수 섭동 (Positive Perturbation)
+                    # 양수 섭동을 실제로 수행하는 순간, '미래에 양수 섭동을 안 하겠다'는 선언은
+                    # 다음 재귀의 Case 1-B 등에서 처리되므로, 여기서는 권한(True)을 유지하며 보냅니다.
+                    if allow_positive and remaining_eps >= 1:
+                        for v in range(int(orig_val) + 1, max_t + 1):
+                            cost = v - orig_val
+                            if remaining_eps >= cost:
+                                next_img = current_img.copy()
+                                next_img[idx_x, idx_y] = v
+                                bnb_dfs(next_img, pixel_pos + 1, remaining_eps - cost, True)
+                                bnb_dfs(next_img, pixel_pos + 1, remaining_eps - cost, False)
+
+                                if found_adversarial[0]:
+                                    break
+
+                bnb_dfs(img.copy(), 0, delta, allow_positive=False)
+
+                # 5. 결과 로깅 및 반환
                 info(f"Checking done in time {time.time() - tx}")
-                if flag:
+                if found_adversarial[0]:
                     info(f"Not robust for sample {sample_no} and delta={delta}")
                 else:
                     info(f"Robust for sample {sample_no} and delta={delta}.")
                 info("")
-                return flag
+
+                return found_adversarial[0]
 
             samples = zip(samples_no_list, sampled_imgs, sampled_labels, orig_preds, search_schedule)
             if mp:
@@ -492,6 +616,3 @@ def run_test(cfg: CFG):
                     check_sample_direct(sample)
 
         info("")
-
-
-# %%
