@@ -491,26 +491,55 @@ def run_test(cfg: CFG):
                 info("BnB-based Query processing (Dual-side Perturbation)")
                 tx = time.time()
 
+                # [STEP 1] Baseline Forward 실행
+                base_spks = []
+                forward(cfg, weights_list, img, base_spks)
+                base_times = base_spks[-1]
+
                 num_classes = weights_list[-1].shape[0]
                 found_adversarial = [False]
+
+                synaptic_delay = 2
+
+                target_time = base_times[orig_pred]
+                # Non-target 중 가장 빨리 터지는 놈 혹은 target_time 중 더 빠른 것을 기준점으로 잡음
+                min_non_target = np.min([base_times[i] for i in range(num_classes) if i != orig_pred])
+                # T_ref: 이 시간 이후에 도착하는 입력 스파이크는 결과를 뒤집기에 너무 늦음
+                t_ref = min(target_time, min_non_target)
+
+                # [STEP 2] 인과율 필터링 (Active Set 구성)
+                # 입력 스파이크 시간(orig_val)이 (기준 시간 + 예산)보다 크면 절대 개입 불가
+                active_priority = []
+
+                for px, py in priority:
+                    orig_val = img[px, py]
+                    # 입력 스파이크를 최대로 당겨도(orig_val - delta) 기준 시간(t_ref)보다 늦으면 배제
+                    if orig_val - delta + synaptic_delay <= t_ref:
+                        active_priority.append((px, py))
+
+                info(
+                    f"Filtered pixels: {len(priority)} -> {len(active_priority)} (Reduced by {len(priority)-len(active_priority)})"
+                )
 
                 # 메모이제이션 테이블: (pos, eps, allow_pos) -> min_d
                 memo = {}
 
-                def bnb_dfs(current_img, pixel_pos, remaining_eps, allow_positive):
+                def bnb_dfs(current_img, pixel_pos, rem_neg, rem_pos):
 
-                    # print(pixel_pos, remaining_eps, allow_positive)
+                    # print(f"At pixel_pos {pixel_pos}, rem_neg {rem_neg}, rem_pos {rem_pos}")
 
                     if found_adversarial[0]:
                         return
 
+                    if rem_neg == 0 and rem_pos == 0:
+                        return
+
                     # [Memo Check] 이미 계산된 적이 있고, 현재 예산보다 더 넉넉한 상태에서
                     # 안전함이 증명되었다면 더 계산할 필요 없음
-                    state = (current_img.tobytes(), pixel_pos, remaining_eps, allow_positive)
+                    state = (current_img.tobytes(), pixel_pos, rem_neg, rem_pos)
                     if state in memo:
-                        if memo[state]:
-                            print("Pruned by memoization.")
-                            return
+                        # print("Pruned by memoization.")
+                        return
 
                     # [STEP 1] 현재 상태의 출력 시간 확인
                     current_spks = []
@@ -525,19 +554,18 @@ def run_test(cfg: CFG):
                         found_adversarial[0] = True
                         return
 
-                    # [핵심] Pruning 적용: 이 경로가 음수 섭동 전용(False)으로 확정된 경우
-                    if not allow_positive:
-                        d = min_non_target_time - target_time
-                        if d > remaining_eps:
-                            memo[state] = True
-                            return  # 단조성이 보장된 영역에서의 안전한 가지치기
+                    # 3. [Pruning] 양수 예산이 없는 '단조성 보장 구간'에서만 가지치기
+                    if rem_pos <= 0:
+                        if (min_non_target_time - target_time) > rem_neg:
+                            memo[state] = True  # 이 상태는 앞으로 어떻게 해도 Safe함
+                            return
 
-                    if pixel_pos == len(priority):
+                    if pixel_pos == len(active_priority):
                         # print("Reached leaf node without finding adversarial.")
                         return
 
                     # [STEP 4] Branching (양수/음수 섭동 모두 고려)
-                    idx_x, idx_y = priority[pixel_pos]
+                    idx_x, idx_y = active_priority[pixel_pos]
                     orig_val = current_img[idx_x, idx_y]
                     max_t = cfg.num_steps  # SNN 시뮬레이션의 최대 타임스텝
 
@@ -545,55 +573,41 @@ def run_test(cfg: CFG):
                     # [경우의 수 나누기 - Branching]
                     # ---------------------------------------------------------
 
-                    # Case 1: 현재 픽셀에 섭동을 주지 않음 (No Perturbation)
-                    # 여기서 중요! allow_positive가 True였다면, 두 가지 미래를 모두 탐색해야 함
-                    if allow_positive:
-                        # 1-A. 앞으로도 계속 양수 섭동 가능성을 열어두는 경로
-                        bnb_dfs(current_img.copy(), pixel_pos + 1, remaining_eps, True)
-                        if found_adversarial[0]:
-                            return
+                    # 2. 음수 섭동 (모든 중간 값 v < orig_val 시도)
+                    if rem_neg >= 1:
+                        for v in range(int(orig_val)):
+                            cost = int(orig_val - v)
+                            if rem_neg >= cost:
+                                next_img = current_img.copy()
+                                next_img[idx_x, idx_y] = v
+                                # 음수 섭동 후에도 양수 권한을 열어둘지 닫을지 결정
+                                bnb_dfs(next_img.copy(), pixel_pos + 1, rem_neg - cost, rem_pos)
 
-                        # 1-B. [전환점] 지금부터는 절대 양수 섭동을 하지 않겠다고 선언하는 경로 (Pruning 활성화)
-                        bnb_dfs(current_img.copy(), pixel_pos + 1, remaining_eps, False)
-                    else:
-                        # 이미 False라면 선택권 없이 False로 진행
-                        bnb_dfs(current_img.copy(), pixel_pos + 1, remaining_eps, False)
+                                if found_adversarial[0]:
+                                    break
+
+                    # 3. 양수 섭동 (모든 중간 값 v > orig_val 시도)
+                    if rem_pos >= 1:
+                        for v in range(int(orig_val) + 1, max_t + 1):
+                            cost = int(v - orig_val)
+                            if rem_pos >= cost:
+                                next_img = current_img.copy()
+                                next_img[idx_x, idx_y] = v
+                                # 양수 섭동을 했으므로, 이후 단계에서도 권한을 유지하거나 여기서 닫음
+                                bnb_dfs(next_img.copy(), pixel_pos + 1, rem_neg, rem_pos - cost)
+
+                                if found_adversarial[0]:
+                                    break
+
+                    # 1. 섭동 없음 (No Perturbation)
+                    # 미래에 양수 섭동 권한을 유지할지, 여기서 닫을지 선택
+                    bnb_dfs(current_img.copy(), pixel_pos + 1, rem_neg, rem_pos)
 
                     if found_adversarial[0]:
                         return
 
-                    # Case 2: 음수 섭동 (Negative Perturbation)
-                    if remaining_eps >= 1:
-                        for v in range(int(orig_val)):
-                            cost = orig_val - v
-                            if remaining_eps >= cost:
-                                next_img = current_img.copy()
-                                next_img[idx_x, idx_y] = v
-                                # 위와 마찬가지로 음수 섭동 후에도 양수 가능성을 유지할지/닫을지 결정
-                                if allow_positive:
-                                    bnb_dfs(next_img, pixel_pos + 1, remaining_eps - cost, True)
-                                    bnb_dfs(next_img, pixel_pos + 1, remaining_eps - cost, False)
-                                else:
-                                    bnb_dfs(next_img, pixel_pos + 1, remaining_eps - cost, False)
-                                if found_adversarial[0]:
-                                    break
-
-                    # Case 3: 양수 섭동 (Positive Perturbation)
-                    # 양수 섭동을 실제로 수행하는 순간, '미래에 양수 섭동을 안 하겠다'는 선언은
-                    # 다음 재귀의 Case 1-B 등에서 처리되므로, 여기서는 권한(True)을 유지하며 보냅니다.
-                    if allow_positive and remaining_eps >= 1:
-                        for v in range(int(orig_val) + 1, max_t + 1):
-                            cost = v - orig_val
-                            if remaining_eps >= cost:
-                                next_img = current_img.copy()
-                                next_img[idx_x, idx_y] = v
-                                bnb_dfs(next_img, pixel_pos + 1, remaining_eps - cost, True)
-                                bnb_dfs(next_img, pixel_pos + 1, remaining_eps - cost, False)
-
-                                if found_adversarial[0]:
-                                    break
-
-                bnb_dfs(img.copy(), 0, delta, allow_positive=False)
+                for i in range(delta):
+                    bnb_dfs(img.copy(), 0, i, delta - i)
 
                 # 5. 결과 로깅 및 반환
                 info(f"Checking done in time {time.time() - tx}")
