@@ -284,11 +284,14 @@ def run_milp_single(
     model.solve(solver)
     total_time = time.time() - tx
 
-    if None:  # For debug
-        forward(weights_list, s0_orig, original_result := list(), voltage_return := list())
+    if True:  # For debug
+        for v in model.variables():
+            print(v.name, v.varValue)
+
+        forward(cfg, weights_list, s0_orig, original_result := list(), voltage_return := list())
         milp_result = list()
-        milp_result.append([spike_times[neuron, 1].varValue for neuron in get_layer_neurons_iter(1)])
-        milp_result.append([spike_times[neuron, 2].varValue for neuron in get_layer_neurons_iter(2)])
+        milp_result.append([spike_times[neuron, 1].varValue for neuron in get_layer_neurons_iter(cfg, 1)])
+        milp_result.append([spike_times[neuron, 2].varValue for neuron in get_layer_neurons_iter(cfg, 2)])
         print("Orig result:\t", [_array.tolist() for _array in original_result])
         print("MILP result:\t", milp_result)
 
@@ -517,16 +520,6 @@ def run_test(cfg: CFG):
                     if found_adversarial[0]:
                         return
 
-                    if rem_neg == 0 and rem_pos == 0:
-                        return
-
-                    # [Memo Check] 이미 계산된 적이 있고, 현재 예산보다 더 넉넉한 상태에서
-                    # 안전함이 증명되었다면 더 계산할 필요 없음
-                    state = (current_img.tobytes(), pixel_pos, rem_neg, rem_pos)
-                    if state in memo:
-                        # print("Pruned by memoization.")
-                        return
-
                     # [STEP 1] 현재 상태의 출력 시간 확인
                     current_spks = []
                     forward(cfg, weights_list, current_img, current_spks)
@@ -544,54 +537,57 @@ def run_test(cfg: CFG):
                         # print("Reached leaf node without finding adversarial.")
                         return
 
+                    if rem_neg == 0 and rem_pos == 0:
+                        return
+
                     idx_x, idx_y = active_priority[pixel_pos]
+
                     orig_val = current_img[idx_x, idx_y]
                     max_t = cfg.num_steps  # SNN 시뮬레이션의 최대 타임스텝
-
-                    # 3. [Pruning] 양수 예산이 없는 '단조성 보장 구간'에서만 가지치기
-                    if rem_pos <= 0:
-                        if (min_non_target_time - target_time) > rem_neg:
-                            memo[state] = True  # 이 상태는 앞으로 어떻게 해도 Safe함
-                            return
 
                     # ---------------------------------------------------------
                     # [경우의 수 나누기 - Branching]
                     # ---------------------------------------------------------
 
-                    # 1. 섭동 없음 (No Perturbation)
+                    # 1. 음수 섭동 (모든 중간 값 v < orig_val 시도)
+                    if rem_neg >= 1:
+                        for v in range(int(orig_val)):
+                            cost = int(orig_val - v)
+                            if rem_neg >= cost:  # and (orig_val - cost + synaptic_delay <= target_time):
+                                next_img = current_img.copy()
+                                next_img[idx_x, idx_y] = v
+
+                                # 음수 섭동 후에도 양수 권한을 열어둘지 닫을지 결정
+                                bnb_dfs(next_img.copy(), pixel_pos + 1, rem_neg - cost, rem_pos)
+
+                                if found_adversarial[0]:
+                                    return
+
+                    # 2. 양수 섭동 (모든 중간 값 v > orig_val 시도)
+                    if rem_pos >= 1:  # and (orig_val + synaptic_delay <= target_time):
+                        for v in range(int(orig_val) + 1, max_t):
+                            cost = int(v - orig_val)
+                            if rem_pos >= cost:
+                                next_img = current_img.copy()
+                                next_img[idx_x, idx_y] = v
+
+                                # 양수 섭동을 했으므로, 이후 단계에서도 권한을 유지하거나 여기서 닫음
+                                bnb_dfs(next_img.copy(), pixel_pos + 1, rem_neg, rem_pos - cost)
+
+                                if found_adversarial[0]:
+                                    return
+
+                    # 3. 섭동 없음 (No Perturbation)
                     # 미래에 양수 섭동 권한을 유지할지, 여기서 닫을지 선택
                     bnb_dfs(current_img.copy(), pixel_pos + 1, rem_neg, rem_pos)
 
                     if found_adversarial[0]:
                         return
 
-                    # 2. 음수 섭동 (모든 중간 값 v < orig_val 시도)
-                    if rem_neg >= 1 and (orig_val - rem_neg + synaptic_delay <= target_time):
-                        for v in range(int(orig_val)):
-                            cost = int(orig_val - v)
-                            if rem_neg >= cost:
-                                next_img = current_img.copy()
-                                next_img[idx_x, idx_y] = v
-                                # 음수 섭동 후에도 양수 권한을 열어둘지 닫을지 결정
-                                bnb_dfs(next_img.copy(), pixel_pos + 1, rem_neg - cost, rem_pos)
-
-                                if found_adversarial[0]:
-                                    break
-
-                    # 3. 양수 섭동 (모든 중간 값 v > orig_val 시도)
-                    if rem_pos >= 1 and (orig_val + synaptic_delay <= target_time):
-                        for v in range(int(orig_val) + 1, max_t + 1):
-                            cost = int(v - orig_val)
-                            if rem_pos >= cost:
-                                next_img = current_img.copy()
-                                next_img[idx_x, idx_y] = v
-                                # 양수 섭동을 했으므로, 이후 단계에서도 권한을 유지하거나 여기서 닫음
-                                bnb_dfs(next_img.copy(), pixel_pos + 1, rem_neg, rem_pos - cost)
-
-                                if found_adversarial[0]:
-                                    break
-
                 for i in range(delta + 1):
+
+                    rem_neg = i
+                    rem_pos = delta - i
                     # [STEP 2] 인과율 필터링 (Active Set 구성)
                     # 입력 스파이크 시간(orig_val)이 (기준 시간 + 예산)보다 크면 절대 개입 불가
                     active_priority = []
@@ -599,14 +595,17 @@ def run_test(cfg: CFG):
                     for px, py in priority:
                         orig_val = img[px, py]
                         # 입력 스파이크를 최대로 당겨도(orig_val - delta) 기준 시간(t_ref)보다 늦으면 배제
-                        if orig_val - i + synaptic_delay <= t_ref:
+
+                        if (orig_val - rem_neg + synaptic_delay <= t_ref) or (
+                            orig_val + synaptic_delay <= t_ref and rem_pos > 0
+                        ):
                             active_priority.append((px, py))
 
                     info(
                         f"Filtered pixels: {len(priority)} -> {len(active_priority)} (Reduced by {len(priority)-len(active_priority)})"
                     )
 
-                    bnb_dfs(img.copy(), 0, i, delta - i)
+                    bnb_dfs(img.copy(), 0, rem_neg, rem_pos)
 
                 # 5. 결과 로깅 및 반환
                 info(f"Checking done in time {time.time() - tx}")
