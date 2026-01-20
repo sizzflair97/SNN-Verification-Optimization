@@ -507,20 +507,6 @@ def run_test(cfg: CFG):
                 # T_ref: 이 시간 이후에 도착하는 입력 스파이크는 결과를 뒤집기에 너무 늦음
                 t_ref = min(target_time, min_non_target)
 
-                # [STEP 2] 인과율 필터링 (Active Set 구성)
-                # 입력 스파이크 시간(orig_val)이 (기준 시간 + 예산)보다 크면 절대 개입 불가
-                active_priority = []
-
-                for px, py in priority:
-                    orig_val = img[px, py]
-                    # 입력 스파이크를 최대로 당겨도(orig_val - delta) 기준 시간(t_ref)보다 늦으면 배제
-                    if orig_val - delta + synaptic_delay <= t_ref:
-                        active_priority.append((px, py))
-
-                info(
-                    f"Filtered pixels: {len(priority)} -> {len(active_priority)} (Reduced by {len(priority)-len(active_priority)})"
-                )
-
                 # 메모이제이션 테이블: (pos, eps, allow_pos) -> min_d
                 memo = {}
 
@@ -554,27 +540,33 @@ def run_test(cfg: CFG):
                         found_adversarial[0] = True
                         return
 
+                    if pixel_pos == len(active_priority):
+                        # print("Reached leaf node without finding adversarial.")
+                        return
+
+                    idx_x, idx_y = active_priority[pixel_pos]
+                    orig_val = current_img[idx_x, idx_y]
+                    max_t = cfg.num_steps  # SNN 시뮬레이션의 최대 타임스텝
+
                     # 3. [Pruning] 양수 예산이 없는 '단조성 보장 구간'에서만 가지치기
                     if rem_pos <= 0:
                         if (min_non_target_time - target_time) > rem_neg:
                             memo[state] = True  # 이 상태는 앞으로 어떻게 해도 Safe함
                             return
 
-                    if pixel_pos == len(active_priority):
-                        # print("Reached leaf node without finding adversarial.")
-                        return
-
-                    # [STEP 4] Branching (양수/음수 섭동 모두 고려)
-                    idx_x, idx_y = active_priority[pixel_pos]
-                    orig_val = current_img[idx_x, idx_y]
-                    max_t = cfg.num_steps  # SNN 시뮬레이션의 최대 타임스텝
-
                     # ---------------------------------------------------------
                     # [경우의 수 나누기 - Branching]
                     # ---------------------------------------------------------
 
+                    # 1. 섭동 없음 (No Perturbation)
+                    # 미래에 양수 섭동 권한을 유지할지, 여기서 닫을지 선택
+                    bnb_dfs(current_img.copy(), pixel_pos + 1, rem_neg, rem_pos)
+
+                    if found_adversarial[0]:
+                        return
+
                     # 2. 음수 섭동 (모든 중간 값 v < orig_val 시도)
-                    if rem_neg >= 1:
+                    if rem_neg >= 1 and (orig_val - rem_neg + synaptic_delay <= target_time):
                         for v in range(int(orig_val)):
                             cost = int(orig_val - v)
                             if rem_neg >= cost:
@@ -587,7 +579,7 @@ def run_test(cfg: CFG):
                                     break
 
                     # 3. 양수 섭동 (모든 중간 값 v > orig_val 시도)
-                    if rem_pos >= 1:
+                    if rem_pos >= 1 and (orig_val + synaptic_delay <= target_time):
                         for v in range(int(orig_val) + 1, max_t + 1):
                             cost = int(v - orig_val)
                             if rem_pos >= cost:
@@ -599,14 +591,21 @@ def run_test(cfg: CFG):
                                 if found_adversarial[0]:
                                     break
 
-                    # 1. 섭동 없음 (No Perturbation)
-                    # 미래에 양수 섭동 권한을 유지할지, 여기서 닫을지 선택
-                    bnb_dfs(current_img.copy(), pixel_pos + 1, rem_neg, rem_pos)
+                for i in range(delta + 1):
+                    # [STEP 2] 인과율 필터링 (Active Set 구성)
+                    # 입력 스파이크 시간(orig_val)이 (기준 시간 + 예산)보다 크면 절대 개입 불가
+                    active_priority = []
 
-                    if found_adversarial[0]:
-                        return
+                    for px, py in priority:
+                        orig_val = img[px, py]
+                        # 입력 스파이크를 최대로 당겨도(orig_val - delta) 기준 시간(t_ref)보다 늦으면 배제
+                        if orig_val - i + synaptic_delay <= t_ref:
+                            active_priority.append((px, py))
 
-                for i in range(delta):
+                    info(
+                        f"Filtered pixels: {len(priority)} -> {len(active_priority)} (Reduced by {len(priority)-len(active_priority)})"
+                    )
+
                     bnb_dfs(img.copy(), 0, i, delta - i)
 
                 # 5. 결과 로깅 및 반환
