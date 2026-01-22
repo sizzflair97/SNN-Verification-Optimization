@@ -22,6 +22,8 @@ sys.setrecursionlimit(3000)
 
 # from utils.ann import SimpleANN, get_gradient, load_ann
 
+debug = False
+
 
 def run_z3(cfg: CFG, *, weights_list: TWeightList, images: TImageBatch):
     n_layer_neurons = cfg.n_layer_neurons
@@ -145,8 +147,9 @@ def run_milp(
     for delta in cfg.deltas:
         info(f"Delta: {delta}")
         for sample_no, img, orig_pred in zip(samples_no_list, sampled_imgs, orig_preds):
-            _model, _tx = run_milp_single(cfg, weights_list, img, orig_pred, delta=delta)
-            info(f"Sample {sample_no}\t|\ttime: {_tx:.13f}\t|\tstatus: {MAP[_model.status]}")
+            if sample_no == 48598:
+                _model, _tx = run_milp_single(cfg, weights_list, img, orig_pred, delta=delta)
+                info(f"Sample {sample_no}\t|\ttime: {_tx:.13f}\t|\tstatus: {MAP[_model.status]}")
 
 
 def run_milp_single(
@@ -520,10 +523,30 @@ def run_test(cfg: CFG):
                     if found_adversarial[0]:
                         return
 
+                    # [Memo Check] 이미 계산된 적이 있고, 현재 예산보다 더 넉넉한 상태에서
+                    # 안전함이 증명되었다면 더 계산할 필요 없음
+                    # state = (current_img.tobytes(), pixel_pos, rem_neg, rem_pos)
+                    # if state in memo:
+                    #    # print("Pruned by memoization.")
+                    #    return
+
                     # [STEP 1] 현재 상태의 출력 시간 확인
                     current_spks = []
                     forward(cfg, weights_list, current_img, current_spks)
                     current_last_layer = current_spks[-1]
+
+                    if debug:
+                        print("Current last layer spike times:", current_last_layer)
+
+                        new_img = current_img.copy()
+                        new_img[14, 14] += 2
+                        new_img[16, 12] += 0
+
+                        current_spks = []
+                        forward(cfg, weights_list, new_img, current_spks)
+                        current_last_layer = current_spks[-1]
+
+                        print("Perturbed last layer spike times:", current_last_layer)
 
                     target_time = current_last_layer[orig_pred]
                     min_non_target_time = np.min([current_last_layer[i] for i in range(num_classes) if i != orig_pred])
@@ -545,25 +568,17 @@ def run_test(cfg: CFG):
                     orig_val = current_img[idx_x, idx_y]
                     max_t = cfg.num_steps  # SNN 시뮬레이션의 최대 타임스텝
 
+                    # 3. [Pruning] 양수 예산이 없는 '단조성 보장 구간'에서만 가지치기
+                    # if rem_pos <= 0:
+                    #    if (min_non_target_time - target_time) > rem_neg:
+                    #        memo[state] = True  # 이 상태는 앞으로 어떻게 해도 Safe함
+                    #        return
+
                     # ---------------------------------------------------------
                     # [경우의 수 나누기 - Branching]
                     # ---------------------------------------------------------
 
-                    # 1. 음수 섭동 (모든 중간 값 v < orig_val 시도)
-                    if rem_neg >= 1:
-                        for v in range(int(orig_val)):
-                            cost = int(orig_val - v)
-                            if rem_neg >= cost:  # and (orig_val - cost + synaptic_delay <= target_time):
-                                next_img = current_img.copy()
-                                next_img[idx_x, idx_y] = v
-
-                                # 음수 섭동 후에도 양수 권한을 열어둘지 닫을지 결정
-                                bnb_dfs(next_img.copy(), pixel_pos + 1, rem_neg - cost, rem_pos)
-
-                                if found_adversarial[0]:
-                                    return
-
-                    # 2. 양수 섭동 (모든 중간 값 v > orig_val 시도)
+                    # 1. 양수 섭동 (모든 중간 값 v > orig_val 시도)
                     if rem_pos >= 1:  # and (orig_val + synaptic_delay <= target_time):
                         for v in range(int(orig_val) + 1, max_t):
                             cost = int(v - orig_val)
@@ -571,8 +586,30 @@ def run_test(cfg: CFG):
                                 next_img = current_img.copy()
                                 next_img[idx_x, idx_y] = v
 
+                                if debug:
+                                    if idx_x == 16 and idx_y == 12:
+                                        print(
+                                            "Perturbing pixel ({},{}) from {} to {} (cost {})".format(
+                                                idx_x, idx_y, orig_val, v, cost
+                                            )
+                                        )
+
                                 # 양수 섭동을 했으므로, 이후 단계에서도 권한을 유지하거나 여기서 닫음
                                 bnb_dfs(next_img.copy(), pixel_pos + 1, rem_neg, rem_pos - cost)
+
+                                if found_adversarial[0]:
+                                    return
+
+                    # 2. 음수 섭동 (모든 중간 값 v < orig_val 시도)
+                    if rem_neg >= 1:
+                        for v in range(int(orig_val)):
+                            cost = int(orig_val - v)
+                            if rem_neg >= cost and (orig_val - cost + synaptic_delay <= target_time):
+                                next_img = current_img.copy()
+                                next_img[idx_x, idx_y] = v
+
+                                # 음수 섭동 후에도 양수 권한을 열어둘지 닫을지 결정
+                                bnb_dfs(next_img.copy(), pixel_pos + 1, rem_neg - cost, rem_pos)
 
                                 if found_adversarial[0]:
                                     return
@@ -596,9 +633,13 @@ def run_test(cfg: CFG):
                         orig_val = img[px, py]
                         # 입력 스파이크를 최대로 당겨도(orig_val - delta) 기준 시간(t_ref)보다 늦으면 배제
 
-                        if (orig_val - rem_neg + synaptic_delay <= t_ref) or (
-                            orig_val + synaptic_delay <= t_ref and rem_pos > 0
-                        ):
+                        if debug:
+                            if px == 16 and py == 12:
+                                print(
+                                    f"Pixel ({px},{py}) with orig_val {orig_val} is active under rem_neg {rem_neg}, rem_pos {rem_pos}, t_ref {t_ref}"
+                                )
+
+                        if orig_val - rem_neg + synaptic_delay <= t_ref + rem_pos:
                             active_priority.append((px, py))
 
                     info(
