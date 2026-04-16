@@ -1,0 +1,151 @@
+{
+  "timestamp": "2026-04-16T14:38:24.192203",
+  "analysis": [
+    {
+      "method": "MNIST-like (baseline)",
+      "active_ratio": 86.18197278911565,
+      "inactive_ratio": 13.818027210884352,
+      "results_by_size": [
+        {
+          "n_hidden": 50,
+          "active_pixels": 25,
+          "base_pruning": 53.92156862745098,
+          "total_pruning": 57.91960534213685,
+          "speedup": 2.37640356781478
+        },
+        {
+          "n_hidden": 100,
+          "active_pixels": 25,
+          "base_pruning": 54.45544554455446,
+          "total_pruning": 58.49306678116791,
+          "speedup": 2.4092360539571027
+        },
+        {
+          "n_hidden": 200,
+          "active_pixels": 25,
+          "base_pruning": 54.726368159203986,
+          "total_pruning": 58.784077063661286,
+          "speedup": 2.4262467725024135
+        },
+        {
+          "n_hidden": 500,
+          "active_pixels": 25,
+          "base_pruning": 54.890219560878236,
+          "total_pruning": 58.960077294390814,
+          "speedup": 2.436651762658714
+        }
+      ]
+    },
+    {
+      "method": "Motion Events",
+      "active_ratio": 69.68537414965986,
+      "inactive_ratio": 30.314625850340136,
+      "results_by_size": [
+        {
+          "n_hidden": 50,
+          "active_pixels": 20,
+          "base_pruning": 53.92156862745098,
+          "total_pruning": 58.186462084833934,
+          "speedup": 2.3915699313195233
+        },
+        {
+          "n_hidden": 100,
+          "active_pixels": 20,
+          "base_pruning": 54.45544554455446,
+          "total_pruning": 58.76256566983229,
+          "speedup": 2.42498112756845
+        },
+        {
+          "n_hidden": 200,
+          "active_pixels": 20,
+          "base_pruning": 54.726368159203986,
+          "total_pruning": 59.05491674281653,
+          "speedup": 2.442295681068272
+        },
+        {
+          "n_hidden": 500,
+          "active_pixels": 20,
+          "base_pruning": 54.890219560878236,
+          "total_pruning": 59.23172787078903,
+          "speedup": 2.452887865422895
+        }
+      ]
+    },
+    {
+      "method": "Sparse Temporal",
+      "active_ratio": 61.60714285714286,
+      "inactive_ratio": 38.39285714285714,
+      "results_by_size": [
+        {
+          "n_hidden": 50,
+          "active_pixels": 18,
+          "base_pruning": 53.92156862745098,
+          "total_pruning": 58.3171393557423,
+          "speedup": 2.399067589277277
+        },
+        {
+          "n_hidden": 100,
+          "active_pixels": 18,
+          "base_pruning": 54.45544554455446,
+          "total_pruning": 58.89453677510609,
+          "speedup": 2.4327666483865076
+        },
+        {
+          "n_hidden": 200,
+          "active_pixels": 18,
+          "base_pruning": 54.726368159203986,
+          "total_pruning": 59.18754442075338,
+          "speedup": 2.4502323758938584
+        },
+        {
+          "n_hidden": 500,
+          "active_pixels": 18,
+          "base_pruning": 54.890219560878236,
+          "total_pruning": 59.36475263758197,
+          "speedup": 2.46091771284469
+        }
+      ]
+    },
+    {
+      "method": "Event-Based (DVS)",
+      "active_ratio": 72.1938775510204,
+      "inactive_ratio": 27.806122448979593,
+      "results_by_size": [
+        {
+          "n_hidden": 50,
+          "active_pixels": 21,
+          "base_pruning": 53.92156862745098,
+          "total_pruning": 58.14588335334133,
+          "speedup": 2.389251237679228
+        },
+        {
+          "n_hidden": 100,
+          "active_pixels": 21,
+          "base_pruning": 54.45544554455446,
+          "total_pruning": 58.72158516872096,
+          "speedup": 2.422573647964413
+        },
+        {
+          "n_hidden": 200,
+          "active_pixels": 21,
+          "base_pruning": 54.726368159203986,
+          "total_pruning": 59.01373235861509,
+          "speedup": 2.4398415799887907
+        },
+        {
+          "n_hidden": 500,
+          "active_pixels": 21,
+          "base_pruning": 54.890219560878236,
+          "total_pruning": 59.190420180048065,
+          "speedup": 2.450405038257945
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "baseline_speedup": 2.4262467725024135,
+    "sparse_speedup": 2.4502323758938584,
+    "event_speedup": 2.4398415799887907,
+    "recommendation": "Use neuromorphic data (DVS/Spiking CIFAR) to demonstrate true benefits"
+  }
+}

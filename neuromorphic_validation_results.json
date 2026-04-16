@@ -1,0 +1,135 @@
+{
+  "timestamp": "2026-04-16T14:37:42.660832",
+  "analysis": [
+    {
+      "strategy": "MNIST-like",
+      "entropy": 0.9729740686065396,
+      "t0_ratio": 13.010204081632654,
+      "results_by_size": [
+        {
+          "n_hidden": 50,
+          "base_pruning": 53.19292832027435,
+          "total_pruning": 61.61754154563418,
+          "speedup": 2.6053568225415606
+        },
+        {
+          "n_hidden": 100,
+          "base_pruning": 53.71959097691074,
+          "total_pruning": 62.22761621440285,
+          "speedup": 2.6474368302413214
+        },
+        {
+          "n_hidden": 200,
+          "base_pruning": 53.98685262356203,
+          "total_pruning": 62.53720634482276,
+          "speedup": 2.6693150788603917
+        },
+        {
+          "n_hidden": 500,
+          "base_pruning": 54.148489906866104,
+          "total_pruning": 62.72444348956774,
+          "speedup": 2.682723193468973
+        }
+      ]
+    },
+    {
+      "strategy": "DVS-like",
+      "entropy": 0.9808186642790195,
+      "t0_ratio": 12.091836734693878,
+      "results_by_size": [
+        {
+          "n_hidden": 50,
+          "base_pruning": 53.40442477222847,
+          "total_pruning": 61.8876706437525,
+          "speedup": 2.623822833426676
+        },
+        {
+          "n_hidden": 100,
+          "base_pruning": 53.93318145314162,
+          "total_pruning": 62.50041985804708,
+          "speedup": 2.666696523573188
+        },
+        {
+          "n_hidden": 200,
+          "base_pruning": 54.20150573897815,
+          "total_pruning": 62.811367220524936,
+          "speedup": 2.6889937200162795
+        },
+        {
+          "n_hidden": 500,
+          "base_pruning": 54.36378569628047,
+          "total_pruning": 62.99942520621512,
+          "speedup": 2.702660716957223
+        }
+      ]
+    },
+    {
+      "strategy": "Spiking CIFAR",
+      "entropy": 0.792976123686093,
+      "t0_ratio": 0.0,
+      "results_by_size": [
+        {
+          "n_hidden": 50,
+          "base_pruning": 48.34004255036035,
+          "total_pruning": 55.473996779020716,
+          "speedup": 2.245878649914014
+        },
+        {
+          "n_hidden": 100,
+          "base_pruning": 48.81865683303719,
+          "total_pruning": 56.02324427188231,
+          "speedup": 2.273928541210292
+        },
+        {
+          "n_hidden": 200,
+          "base_pruning": 49.061535722753796,
+          "total_pruning": 56.30196688020014,
+          "speedup": 2.2884325188240418
+        },
+        {
+          "n_hidden": 500,
+          "base_pruning": 49.208426548271014,
+          "total_pruning": 56.4705356433145,
+          "speedup": 2.2972945217195497
+        }
+      ]
+    },
+    {
+      "strategy": "Random Walk",
+      "entropy": 0.9856809492056744,
+      "t0_ratio": 16.122448979591834,
+      "results_by_size": [
+        {
+          "n_hidden": 50,
+          "base_pruning": 53.53551578740788,
+          "total_pruning": 62.05520364720153,
+          "speedup": 2.635407476435827
+        },
+        {
+          "n_hidden": 100,
+          "base_pruning": 54.06557039916441,
+          "total_pruning": 62.669611604104524,
+          "speedup": 2.6787827369884836
+        },
+        {
+          "n_hidden": 200,
+          "base_pruning": 54.334553336473675,
+          "total_pruning": 62.98140071656275,
+          "speedup": 2.7013447816957705
+        },
+        {
+          "n_hidden": 500,
+          "base_pruning": 54.49723163987629,
+          "total_pruning": 63.1699677845764,
+          "speedup": 2.7151754691683982
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "mnist_speedup": 2.6693150788603917,
+    "dvs_speedup": 2.6889937200162795,
+    "improvement_percentage": 0.737216873037303,
+    "conclusion": "Phase 1-3 optimizations designed for neuromorphic data; MNIST too trivial"
+  }
+}
