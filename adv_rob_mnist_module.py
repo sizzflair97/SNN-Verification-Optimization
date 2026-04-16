@@ -3,6 +3,7 @@ from multiprocessing import Pool
 from pathlib import Path
 from random import sample as random_sample
 from random import seed, Random
+import hashlib
 from typing import Any
 from collections.abc import Generator
 import time, logging, pdb
@@ -699,6 +700,21 @@ def run_test(cfg: CFG):
                     st[st > num_steps - 1] = num_steps - 1
                     return st
 
+                def _compute_state_hash(V_h, V_o, spike_h, spike_o, pixel_pos, rem_neg, rem_pos):
+                    """상태를 hash로 변환. state caching용."""
+                    # numpy array를 bytes로 변환 후 hash
+                    state_bytes = (
+                        V_h.tobytes()
+                        + V_o.tobytes()
+                        + spike_h.tobytes()
+                        + spike_o.tobytes()
+                        + pixel_pos.to_bytes(4, 'little')
+                        + rem_neg.to_bytes(4, 'little')
+                        + rem_pos.to_bytes(4, 'little')
+                    )
+                    # hashlib.sha256보다 빠른 hash 사용
+                    return hash(state_bytes)
+
                 # ============================================================
                 # Incremental BnB DFS
                 # ============================================================
@@ -715,6 +731,7 @@ def run_test(cfg: CFG):
                     max_decr,  # max_decr[h, t]: remaining 픽셀이 V_h[h,t]를 감소시킬 수 있는 relaxed 상한
                     prefix_hash=0,  # PSM: 현재 prefix의 zobrist hash
                     psm_cache=None,  # PSM: {(prefix_hash, rem_neg, rem_pos)} 캐시
+                    state_cache=None,  # State caching: {state_hash: found_adv} 캐시
                 ):
                     if found_adversarial[0]:
                         return
@@ -746,6 +763,15 @@ def run_test(cfg: CFG):
                     if rem_neg == 0 and rem_pos == 0:
                         return
 
+                    # ---- State cache lookup ----
+                    if state_cache is not None:
+                        state_hash = _compute_state_hash(V_h, V_o, spike_h, spike_o, pixel_pos, rem_neg, rem_pos)
+                        if state_hash in state_cache:
+                            psm_stats["state_hits"] += 1
+                            # 캐시된 결과: found_adversarial[0]이 이미 True면 재방문 의미 없음
+                            return
+                        psm_stats["state_checks"] += 1
+
                     # ---- Pruning: check if all hidden spike times are fixed ----
                     if n_hidden <= 32:
                         # Pure Python for small models (avoids numpy per-call overhead)
@@ -772,7 +798,9 @@ def run_test(cfg: CFG):
                     # ---- PSM: Cache lookup at prefix check points ----
                     if psm_cache is not None and pixel_pos in prefix_check_positions:
                         cache_key = (prefix_hash, rem_neg, rem_pos)
+                        psm_stats["checks"] += 1
                         if cache_key in psm_cache:
+                            psm_stats["hits"] += 1
                             return  # 동일 prefix + 동일 budget → adversarial 없음 (이미 탐색됨)
 
                     # ---- Branching ----
@@ -825,6 +853,7 @@ def run_test(cfg: CFG):
                                 max_decr,
                                 new_hash,
                                 psm_cache,
+                                state_cache,
                             )
 
                             if found_adversarial[0]:
@@ -891,6 +920,7 @@ def run_test(cfg: CFG):
                                 max_decr,
                                 new_hash,
                                 psm_cache,
+                                state_cache,
                             )
 
                             if found_adversarial[0]:
@@ -928,6 +958,7 @@ def run_test(cfg: CFG):
                         max_decr,
                         prefix_hash,
                         psm_cache,
+                        state_cache,
                     )
 
                     # 이 픽셀의 bound 기여 복원
@@ -937,6 +968,11 @@ def run_test(cfg: CFG):
                     if psm_cache is not None and pixel_pos in prefix_check_positions and not found_adversarial[0]:
                         cache_key = (prefix_hash, rem_neg, rem_pos)
                         psm_cache.add(cache_key)
+
+                    # ---- State cache insert ----
+                    if state_cache is not None and not found_adversarial[0]:
+                        state_hash = _compute_state_hash(V_h, V_o, spike_h, spike_o, pixel_pos, rem_neg, rem_pos)
+                        state_cache.add(state_hash)
 
                 # ============================================================
                 # Helper: incremental voltage update for single pixel change
@@ -1029,6 +1065,8 @@ def run_test(cfg: CFG):
                 # ============================================================
                 # 메인 루프: delta budget split
                 # ============================================================
+                psm_stats = {"checks": 0, "hits": 0, "state_checks": 0, "state_hits": 0}  # Cache statistics
+
                 for i in range(delta + 1):
                     rem_neg = i
                     rem_pos = delta - i
@@ -1048,6 +1086,9 @@ def run_test(cfg: CFG):
                     # PSM: Cache 초기화 (모든 budget split에서 공유 가능)
                     psm_cache = set() if _use_psm else None
 
+                    # State cache 초기화
+                    state_cache = set()
+
                     bnb_dfs_incremental(
                         pixel_img,
                         V_h,
@@ -1061,6 +1102,7 @@ def run_test(cfg: CFG):
                         max_decr,
                         initial_hash,
                         psm_cache,
+                        state_cache,
                     )
 
                     if found_adversarial[0]:
@@ -1068,6 +1110,11 @@ def run_test(cfg: CFG):
 
                 # 결과 로깅
                 info(f"Checking done in time {time.time() - tx}")
+                if _use_psm:
+                    hit_rate = (psm_stats["hits"] / psm_stats["checks"] * 100) if psm_stats["checks"] > 0 else 0
+                    info(f"PSM cache: {psm_stats['checks']} checks, {psm_stats['hits']} hits ({hit_rate:.1f}%)")
+                state_hit_rate = (psm_stats["state_hits"] / psm_stats["state_checks"] * 100) if psm_stats["state_checks"] > 0 else 0
+                info(f"State cache: {psm_stats['state_checks']} checks, {psm_stats['state_hits']} hits ({state_hit_rate:.1f}%)")
                 if found_adversarial[0]:
                     info(f"Not robust for sample {sample_no} and delta={delta}")
                 else:
