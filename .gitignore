@@ -1,18 +1,27 @@
-*.old
-Models
-data
+# Datasets and trained weights
+code/data/
+code/models/
+code/Models/
+
+# Logs and run artifacts
+code/log/
+code/bench_results/
 *.log
 *.err
 *.out
-*.pth
-.vs*
-*__pycache__*
+
+# Python build artifacts
+__pycache__/
 *.pyc
-eqn
-eqn/eqn_64_784_128_10.txt
-PertExample.pdf
-out.pdf
-**/*.zip
-src/
+*.pyo
+
+# Virtualenvs
 venv/
-paper/
+.venv/
+
+# Editor / OS
+.vs*
+.DS_Store
+
+# Archived material — kept locally, not committed
+archive/
