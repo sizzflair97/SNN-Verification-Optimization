@@ -1,7 +1,14 @@
 # Datasets and trained weights
+data/
+models/
+Models/
 code/data/
 code/models/
 code/Models/
+
+# Z3 cached SMT expression dumps (>50 MB each)
+eqn/
+code/eqn/
 
 # Logs and run artifacts
 code/log/
