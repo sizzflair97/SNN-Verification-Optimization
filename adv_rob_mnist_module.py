@@ -33,10 +33,11 @@ from utils.encoding_mnist import *
 from utils.config import CFG
 from utils.debug import info
 from utils.mnist_net import forward, backward, prepare_weights
+from bnb_ibp import ibp_prove_robust, ibp_prove_robust_budgeted, ibp_prove_robust_beta
 
 import sys
 
-sys.setrecursionlimit(3000)
+sys.setrecursionlimit(10000)
 
 # from utils.ann import SimpleANN, get_gradient, load_ann
 
@@ -600,6 +601,22 @@ def run_test(cfg: CFG):
                 # ============================================================
                 _legacy_active = os.environ.get("SNN_BNB_LEGACY_ACTIVE_SET", "0") == "1"
                 _efficient = os.environ.get("SNN_BNB_EFFICIENT", "1") == "1"
+                _use_ibp = os.environ.get("SNN_BNB_IBP", "0") == "1"
+                _ibp_min_depth = int(os.environ.get("SNN_BNB_IBP_MIN_DEPTH", "0"))
+                _ibp_every = int(os.environ.get("SNN_BNB_IBP_EVERY", "100"))  # call IBP every K branching levels (empirical sweet spot)
+                _ibp_coupled = os.environ.get("SNN_BNB_IBP_COUPLED", "0") == "1"  # budget-coupled knapsack IBP
+                _use_beta = os.environ.get("SNN_BNB_BETA", "0") == "1"  # β-branching on BC-IBP
+                _beta_depth = int(os.environ.get("SNN_BNB_BETA_DEPTH", "2"))
+                _beta_top_k = int(os.environ.get("SNN_BNB_BETA_TOPK", "1"))
+                if _use_beta:
+                    def _ibp_fn(**kwargs):
+                        return ibp_prove_robust_beta(
+                            beta_depth=_beta_depth, beta_top_k=_beta_top_k, **kwargs
+                        )
+                elif _ibp_coupled:
+                    _ibp_fn = ibp_prove_robust_budgeted
+                else:
+                    _ibp_fn = ibp_prove_robust
 
                 target_time_base = base_times[orig_pred]
                 min_non_target_base = np.min([base_times[i] for i in range(num_classes) if i != orig_pred])
@@ -733,246 +750,195 @@ def run_test(cfg: CFG):
                     psm_cache=None,  # PSM: {(prefix_hash, rem_neg, rem_pos)} 캐시
                     state_cache=None,  # State caching: {state_hash: found_adv} 캐시
                 ):
-                    if found_adversarial[0]:
-                        return
-
-                    # ---- Adversarial check ----
-                    target_time = spike_o[orig_pred]
-                    min_nt_time = float("inf")
-                    for i in range(num_classes):
-                        if i != orig_pred and spike_o[i] < min_nt_time:
-                            min_nt_time = spike_o[i]
-
-                    is_adversarial = (min_nt_time < target_time) or (
-                        min_nt_time == target_time and any(spike_o[i] == target_time for i in range(orig_pred))
-                    )
-
-                    if is_adversarial:
-                        l1_cost = int(np.sum(np.abs(pixel_img.astype(int) - img.astype(int))))
-                        if l1_cost <= delta:
-                            witness_pred = forward(cfg, weights_list, pixel_img)
-                            assert (
-                                witness_pred != orig_pred
-                            ), f"Incremental mismatch: witness_pred={witness_pred}, orig_pred={orig_pred}"
-                            print(f"Adversarial found: pred={witness_pred}, L1_cost={l1_cost}.")
-                            found_adversarial[0] = True
-                        return
-
-                    if pixel_pos == len(active_priority):
-                        return
-                    if rem_neg == 0 and rem_pos == 0:
-                        return
-
-                    # ---- State cache lookup ----
-                    if state_cache is not None:
-                        state_hash = _compute_state_hash(V_h, V_o, spike_h, spike_o, pixel_pos, rem_neg, rem_pos)
-                        if state_hash in state_cache:
-                            psm_stats["state_hits"] += 1
-                            # 캐시된 결과: found_adversarial[0]이 이미 True면 재방문 의미 없음
-                            return
-                        psm_stats["state_checks"] += 1
-
-                    # ---- Pruning: check if all hidden spike times are fixed ----
-                    if n_hidden <= 32:
-                        # Pure Python for small models (avoids numpy per-call overhead)
-                        all_fixed = True
-                        for h in range(n_hidden):
-                            s_h = int(spike_h[h])
-                            si = s_h - 1
-                            if si < 0:
-                                si = 0
-                            if V_h[h, si] - max_decr[h, si] <= threshold:
-                                all_fixed = False
-                                break
-                            can_advance = False
-                            for t in range(si):
-                                if V_h[h, t] + max_incr[h, t] > threshold:
-                                    can_advance = True
-                                    break
-                            if can_advance:
-                                all_fixed = False
-                                break
-                        if all_fixed:
-                            return
-
-                    # ---- PSM: Cache lookup at prefix check points ----
-                    if psm_cache is not None and pixel_pos in prefix_check_positions:
-                        cache_key = (prefix_hash, rem_neg, rem_pos)
-                        psm_stats["checks"] += 1
-                        if cache_key in psm_cache:
-                            psm_stats["hits"] += 1
-                            return  # 동일 prefix + 동일 budget → adversarial 없음 (이미 탐색됨)
-
-                    # ---- Branching ----
-                    idx_x, idx_y = active_priority[pixel_pos]
-                    orig_val = int(pixel_img[idx_x, idx_y])
-                    max_t = num_steps
-
-                    _update_bounds(idx_x, idx_y, orig_val, max_incr, max_decr, w1, num_steps, -1)
-
-                    # Branch 1: 양수 섭동
-                    if rem_pos >= 1:
-                        for v in range(orig_val + 1, max_t):
-                            cost = v - orig_val
-                            if rem_pos < cost:
-                                break
-                            # Apply: pixel_img[idx_x, idx_y] = v → voltage update
-                            _apply_pixel_change(
-                                idx_x,
-                                idx_y,
-                                orig_val,
-                                v,
-                                w1,
-                                w2_flat,
-                                V_h,
-                                V_o,
-                                spike_h,
-                                spike_o,
-                                num_steps,
-                                n_hidden,
-                                num_classes,
-                            )
-                            pixel_img[idx_x, idx_y] = v
-
-                            # PSM: 해시 업데이트
-                            new_hash = prefix_hash
-                            if zobrist_table:  # PSM이 활성화되어 있을 때만
-                                new_hash ^= zobrist_table[(pixel_pos, orig_val)]
-                                new_hash ^= zobrist_table[(pixel_pos, v)]
-
-                            bnb_dfs_incremental(
-                                pixel_img,
-                                V_h,
-                                V_o,
-                                spike_h,
-                                spike_o,
-                                pixel_pos + 1,
-                                rem_neg,
-                                rem_pos - cost,
-                                max_incr,
-                                max_decr,
-                                new_hash,
-                                psm_cache,
-                                state_cache,
-                            )
-
+                    # Iterative Branch 3 (no perturbation) to bound stack depth.
+                    # Recursion via Branches 1/2 is bounded by delta; the no-perturb path
+                    # would otherwise blow up to len(active_priority) (3072 for CIFAR).
+                    pending_restore = []  # (idx_x, idx_y, orig_val, ppos)
+                    try:
+                        while True:
                             if found_adversarial[0]:
-                                _update_bounds(idx_x, idx_y, orig_val, max_incr, max_decr, w1, num_steps, +1)
                                 return
 
-                            # Undo
-                            _apply_pixel_change(
-                                idx_x,
-                                idx_y,
-                                v,
-                                orig_val,
-                                w1,
-                                w2_flat,
-                                V_h,
-                                V_o,
-                                spike_h,
-                                spike_o,
-                                num_steps,
-                                n_hidden,
-                                num_classes,
-                            )
-                            pixel_img[idx_x, idx_y] = orig_val
+                            # ---- Adversarial check ----
+                            target_time = spike_o[orig_pred]
+                            min_nt_time = float("inf")
+                            for i in range(num_classes):
+                                if i != orig_pred and spike_o[i] < min_nt_time:
+                                    min_nt_time = spike_o[i]
 
-                    # Branch 2: 음수 섭동
-                    if rem_neg >= 1:
-                        for v in range(orig_val - 1, -1, -1):
-                            cost = orig_val - v
-                            if rem_neg < cost:
-                                break
-                            _apply_pixel_change(
-                                idx_x,
-                                idx_y,
-                                orig_val,
-                                v,
-                                w1,
-                                w2_flat,
-                                V_h,
-                                V_o,
-                                spike_h,
-                                spike_o,
-                                num_steps,
-                                n_hidden,
-                                num_classes,
-                            )
-                            pixel_img[idx_x, idx_y] = v
-
-                            # PSM: 해시 업데이트
-                            new_hash = prefix_hash
-                            if zobrist_table:  # PSM이 활성화되어 있을 때만
-                                new_hash ^= zobrist_table[(pixel_pos, orig_val)]
-                                new_hash ^= zobrist_table[(pixel_pos, v)]
-
-                            bnb_dfs_incremental(
-                                pixel_img,
-                                V_h,
-                                V_o,
-                                spike_h,
-                                spike_o,
-                                pixel_pos + 1,
-                                rem_neg - cost,
-                                rem_pos,
-                                max_incr,
-                                max_decr,
-                                new_hash,
-                                psm_cache,
-                                state_cache,
+                            is_adversarial = (min_nt_time < target_time) or (
+                                min_nt_time == target_time and any(spike_o[i] == target_time for i in range(orig_pred))
                             )
 
-                            if found_adversarial[0]:
-                                _update_bounds(idx_x, idx_y, orig_val, max_incr, max_decr, w1, num_steps, +1)
+                            if is_adversarial:
+                                l1_cost = int(np.sum(np.abs(pixel_img.astype(int) - img.astype(int))))
+                                if l1_cost <= delta:
+                                    witness_pred = forward(cfg, weights_list, pixel_img)
+                                    assert (
+                                        witness_pred != orig_pred
+                                    ), f"Incremental mismatch: witness_pred={witness_pred}, orig_pred={orig_pred}"
+                                    print(f"Adversarial found: pred={witness_pred}, L1_cost={l1_cost}.")
+                                    found_adversarial[0] = True
                                 return
 
-                            _apply_pixel_change(
-                                idx_x,
-                                idx_y,
-                                v,
-                                orig_val,
-                                w1,
-                                w2_flat,
-                                V_h,
-                                V_o,
-                                spike_h,
-                                spike_o,
-                                num_steps,
-                                n_hidden,
-                                num_classes,
-                            )
-                            pixel_img[idx_x, idx_y] = orig_val
+                            if pixel_pos == len(active_priority):
+                                return
+                            if rem_neg == 0 and rem_pos == 0:
+                                return
 
-                    # Branch 3: no perturbation
-                    bnb_dfs_incremental(
-                        pixel_img,
-                        V_h,
-                        V_o,
-                        spike_h,
-                        spike_o,
-                        pixel_pos + 1,
-                        rem_neg,
-                        rem_pos,
-                        max_incr,
-                        max_decr,
-                        prefix_hash,
-                        psm_cache,
-                        state_cache,
-                    )
+                            # ---- State cache lookup ----
+                            if state_cache is not None:
+                                state_hash = _compute_state_hash(V_h, V_o, spike_h, spike_o, pixel_pos, rem_neg, rem_pos)
+                                if state_hash in state_cache:
+                                    psm_stats["state_hits"] += 1
+                                    return
+                                psm_stats["state_checks"] += 1
 
-                    # 이 픽셀의 bound 기여 복원
-                    _update_bounds(idx_x, idx_y, orig_val, max_incr, max_decr, w1, num_steps, +1)
+                            # ---- Pruning: check if all hidden spike times are fixed ----
+                            if n_hidden <= 32:
+                                all_fixed = True
+                                for h in range(n_hidden):
+                                    s_h = int(spike_h[h])
+                                    si = s_h - 1
+                                    if si < 0:
+                                        si = 0
+                                    if V_h[h, si] - max_decr[h, si] <= threshold:
+                                        all_fixed = False
+                                        break
+                                    can_advance = False
+                                    for t in range(si):
+                                        if V_h[h, t] + max_incr[h, t] > threshold:
+                                            can_advance = True
+                                            break
+                                    if can_advance:
+                                        all_fixed = False
+                                        break
+                                if all_fixed:
+                                    return
 
-                    # ---- PSM: Cache insert at prefix check points ----
-                    if psm_cache is not None and pixel_pos in prefix_check_positions and not found_adversarial[0]:
-                        cache_key = (prefix_hash, rem_neg, rem_pos)
-                        psm_cache.add(cache_key)
+                            # ---- IBP bound pruning ----
+                            if (
+                                _use_ibp
+                                and pixel_pos >= _ibp_min_depth
+                                and (pixel_pos - _ibp_min_depth) % _ibp_every == 0
+                            ):
+                                remaining_arr = np.asarray(active_priority[pixel_pos:], dtype=int)
+                                if remaining_arr.ndim == 1:
+                                    remaining_arr = remaining_arr.reshape(0, 2)
+                                psm_stats["ibp_calls"] = psm_stats.get("ibp_calls", 0) + 1
+                                if _ibp_fn(
+                                    pixel_img=pixel_img,
+                                    remaining_pixels=remaining_arr,
+                                    rem_neg=rem_neg,
+                                    rem_pos=rem_pos,
+                                    w1=w1,
+                                    w2_flat=w2_flat,
+                                    num_steps=num_steps,
+                                    threshold=threshold,
+                                    orig_pred=orig_pred,
+                                    num_classes=num_classes,
+                                ):
+                                    psm_stats["ibp_prunes"] = psm_stats.get("ibp_prunes", 0) + 1
+                                    return
 
-                    # ---- State cache insert ----
-                    if state_cache is not None and not found_adversarial[0]:
-                        state_hash = _compute_state_hash(V_h, V_o, spike_h, spike_o, pixel_pos, rem_neg, rem_pos)
-                        state_cache.add(state_hash)
+                            # ---- PSM: Cache lookup at prefix check points ----
+                            if psm_cache is not None and pixel_pos in prefix_check_positions:
+                                cache_key = (prefix_hash, rem_neg, rem_pos)
+                                psm_stats["checks"] += 1
+                                if cache_key in psm_cache:
+                                    psm_stats["hits"] += 1
+                                    return
+
+                            # ---- Branching ----
+                            idx_x, idx_y = active_priority[pixel_pos]
+                            orig_val = int(pixel_img[idx_x, idx_y])
+                            max_t = num_steps
+
+                            _update_bounds(idx_x, idx_y, orig_val, max_incr, max_decr, w1, num_steps, -1)
+                            pending_restore.append((idx_x, idx_y, orig_val, pixel_pos))
+
+                            # Branch 1: positive perturbation (recurse, bounded by delta)
+                            if rem_pos >= 1:
+                                for v in range(orig_val + 1, max_t):
+                                    cost = v - orig_val
+                                    if rem_pos < cost:
+                                        break
+                                    _apply_pixel_change(
+                                        idx_x, idx_y, orig_val, v,
+                                        w1, w2_flat, V_h, V_o, spike_h, spike_o,
+                                        num_steps, n_hidden, num_classes,
+                                    )
+                                    pixel_img[idx_x, idx_y] = v
+
+                                    new_hash = prefix_hash
+                                    if zobrist_table:
+                                        new_hash ^= zobrist_table[(pixel_pos, orig_val)]
+                                        new_hash ^= zobrist_table[(pixel_pos, v)]
+
+                                    bnb_dfs_incremental(
+                                        pixel_img, V_h, V_o, spike_h, spike_o,
+                                        pixel_pos + 1, rem_neg, rem_pos - cost,
+                                        max_incr, max_decr, new_hash, psm_cache, state_cache,
+                                    )
+
+                                    if found_adversarial[0]:
+                                        return
+
+                                    _apply_pixel_change(
+                                        idx_x, idx_y, v, orig_val,
+                                        w1, w2_flat, V_h, V_o, spike_h, spike_o,
+                                        num_steps, n_hidden, num_classes,
+                                    )
+                                    pixel_img[idx_x, idx_y] = orig_val
+
+                            # Branch 2: negative perturbation (recurse, bounded by delta)
+                            if rem_neg >= 1:
+                                for v in range(orig_val - 1, -1, -1):
+                                    cost = orig_val - v
+                                    if rem_neg < cost:
+                                        break
+                                    _apply_pixel_change(
+                                        idx_x, idx_y, orig_val, v,
+                                        w1, w2_flat, V_h, V_o, spike_h, spike_o,
+                                        num_steps, n_hidden, num_classes,
+                                    )
+                                    pixel_img[idx_x, idx_y] = v
+
+                                    new_hash = prefix_hash
+                                    if zobrist_table:
+                                        new_hash ^= zobrist_table[(pixel_pos, orig_val)]
+                                        new_hash ^= zobrist_table[(pixel_pos, v)]
+
+                                    bnb_dfs_incremental(
+                                        pixel_img, V_h, V_o, spike_h, spike_o,
+                                        pixel_pos + 1, rem_neg - cost, rem_pos,
+                                        max_incr, max_decr, new_hash, psm_cache, state_cache,
+                                    )
+
+                                    if found_adversarial[0]:
+                                        return
+
+                                    _apply_pixel_change(
+                                        idx_x, idx_y, v, orig_val,
+                                        w1, w2_flat, V_h, V_o, spike_h, spike_o,
+                                        num_steps, n_hidden, num_classes,
+                                    )
+                                    pixel_img[idx_x, idx_y] = orig_val
+
+                            # Branch 3: no perturbation -> iterate (no recursion)
+                            pixel_pos += 1
+                    finally:
+                        # Restore bounds + insert cache entries for visited pixels (reverse order).
+                        # Branches 1/2 are state-neutral on backtrack, so V_h/V_o/spike_*/pixel_img
+                        # are at function-entry state here (unless found_adversarial, in which case
+                        # we skip cache inserts but still must restore max_incr/max_decr).
+                        for idx_x_r, idx_y_r, orig_val_r, ppos_r in reversed(pending_restore):
+                            _update_bounds(idx_x_r, idx_y_r, orig_val_r, max_incr, max_decr, w1, num_steps, +1)
+                            if not found_adversarial[0]:
+                                if psm_cache is not None and ppos_r in prefix_check_positions:
+                                    psm_cache.add((prefix_hash, rem_neg, rem_pos))
+                                if state_cache is not None:
+                                    state_cache.add(_compute_state_hash(V_h, V_o, spike_h, spike_o, ppos_r, rem_neg, rem_pos))
 
                 # ============================================================
                 # Helper: incremental voltage update for single pixel change
@@ -1115,6 +1081,10 @@ def run_test(cfg: CFG):
                     info(f"PSM cache: {psm_stats['checks']} checks, {psm_stats['hits']} hits ({hit_rate:.1f}%)")
                 state_hit_rate = (psm_stats["state_hits"] / psm_stats["state_checks"] * 100) if psm_stats["state_checks"] > 0 else 0
                 info(f"State cache: {psm_stats['state_checks']} checks, {psm_stats['state_hits']} hits ({state_hit_rate:.1f}%)")
+                ibp_calls = psm_stats.get("ibp_calls", 0)
+                ibp_prunes = psm_stats.get("ibp_prunes", 0)
+                if ibp_calls:
+                    info(f"IBP: {ibp_calls} calls, {ibp_prunes} prunes ({100*ibp_prunes/ibp_calls:.1f}%)")
                 if found_adversarial[0]:
                     info(f"Not robust for sample {sample_no} and delta={delta}")
                 else:

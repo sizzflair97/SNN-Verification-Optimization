@@ -1,0 +1,69 @@
+{
+  "config": {
+    "n_h": 200,
+    "delta": 2,
+    "T": 5,
+    "num_samples": 10
+  },
+  "results": [
+    {
+      "tag": "bnb_legacy_ibp_coupled",
+      "wall_s": 13.125591039657593,
+      "solver_times": [
+        0.6151518821716309,
+        0.06975746154785156,
+        0.493117094039917,
+        0.0684506893157959,
+        0.06877827644348145,
+        0.06953215599060059,
+        4.87320613861084,
+        0.06902432441711426,
+        0.07114553451538086,
+        0.06339669227600098
+      ],
+      "verdicts": [
+        {
+          "sample_no": 41905,
+          "verdict": "not_robust"
+        },
+        {
+          "sample_no": 7296,
+          "verdict": "robust"
+        },
+        {
+          "sample_no": 1639,
+          "verdict": "not_robust"
+        },
+        {
+          "sample_no": 48598,
+          "verdict": "robust"
+        },
+        {
+          "sample_no": 18024,
+          "verdict": "robust"
+        },
+        {
+          "sample_no": 16049,
+          "verdict": "robust"
+        },
+        {
+          "sample_no": 14628,
+          "verdict": "robust"
+        },
+        {
+          "sample_no": 9144,
+          "verdict": "robust"
+        },
+        {
+          "sample_no": 48265,
+          "verdict": "robust"
+        },
+        {
+          "sample_no": 6717,
+          "verdict": "not_robust"
+        }
+      ],
+      "log": "/home/uoscisai/Experiments/FormalVerification/SNN/SNN-Verification-Optimization/log/04171706_mnist_abl_bnb_legacy_ibp_coupled_nh200_d2_np_5_784_200_10_delta(2,).log"
+    }
+  ]
+}

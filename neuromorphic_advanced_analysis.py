@@ -18,10 +18,7 @@ from datetime import datetime
 
 
 def create_motion_event_encoding(
-    base_image: np.ndarray,
-    motion_direction: tuple = (1, 0),
-    motion_frames: int = 10,
-    num_steps: int = 20
+    base_image: np.ndarray, motion_direction: tuple = (1, 0), motion_frames: int = 10, num_steps: int = 20
 ) -> np.ndarray:
     """
     움직이는 객체를 포함한 시간 인코딩
@@ -65,9 +62,7 @@ def create_motion_event_encoding(
 
 
 def create_sparse_temporal_encoding(
-    base_image: np.ndarray,
-    sparsity: float = 0.7,  # 70%는 inactive
-    num_steps: int = 20
+    base_image: np.ndarray, sparsity: float = 0.7, num_steps: int = 20  # 70%는 inactive
 ) -> np.ndarray:
     """
     희소한 활성 픽셀 + 높은 시간 분산
@@ -185,7 +180,7 @@ def estimate_phase_benefits_advanced(n_hidden: int, active_ratio: float) -> dict
     total_pruning = min(0.92, total_pruning)
 
     # 검색 공간 감소
-    search_space_reduction = (total_pruning * 100)
+    search_space_reduction = total_pruning * 100
     speedup = 1.0 / (1.0 - total_pruning)
 
     return {
@@ -273,20 +268,24 @@ def run_advanced_neuromorphic_analysis():
                 f"{benefit['estimated_speedup']:>6.1f}x"
             )
 
-            method_results.append({
-                "n_hidden": n_hidden,
-                "active_pixels": benefit['num_active_pixels'],
-                "base_pruning": benefit['base_pruning_percent'],
-                "total_pruning": benefit['total_pruning_percent'],
-                "speedup": benefit['estimated_speedup'],
-            })
+            method_results.append(
+                {
+                    "n_hidden": n_hidden,
+                    "active_pixels": benefit["num_active_pixels"],
+                    "base_pruning": benefit["base_pruning_percent"],
+                    "total_pruning": benefit["total_pruning_percent"],
+                    "speedup": benefit["estimated_speedup"],
+                }
+            )
 
-        results.append({
-            "method": method_name,
-            "active_ratio": avg_active_ratio * 100,
-            "inactive_ratio": avg_inactive_ratio,
-            "results_by_size": method_results,
-        })
+        results.append(
+            {
+                "method": method_name,
+                "active_ratio": avg_active_ratio * 100,
+                "inactive_ratio": avg_inactive_ratio,
+                "results_by_size": method_results,
+            }
+        )
 
         print()
 
@@ -323,7 +322,8 @@ def run_advanced_neuromorphic_analysis():
     sparse_speedup = next(r["results_by_size"][2]["speedup"] for r in results if "Sparse" in r["method"])
     event_speedup = next(r["results_by_size"][2]["speedup"] for r in results if "Event-Based" in r["method"])
 
-    print(f"""
+    print(
+        f"""
 ✅ NEUROMORPHIC DATA CHARACTERISTICS MATTER
 
 Sparsity Effect (Sparse Temporal encoding):
@@ -371,7 +371,8 @@ Phase 3 (Smart Ordering):
   ✅ Actual benefit depends on data sparsity and temporal distribution
   ✅ MNIST is poor benchmark; real benefits in DVS/Spiking CIFAR
   ✅ Our approach is production-ready for neuromorphic AI
-""")
+"""
+    )
 
     # 결과 저장
     output_data = {
@@ -382,7 +383,7 @@ Phase 3 (Smart Ordering):
             "sparse_speedup": float(sparse_speedup),
             "event_speedup": float(event_speedup),
             "recommendation": "Use neuromorphic data (DVS/Spiking CIFAR) to demonstrate true benefits",
-        }
+        },
     }
 
     output_file = "neuromorphic_advanced_results.json"

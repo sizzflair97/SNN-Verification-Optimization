@@ -1,13 +1,27 @@
 from typing import Literal, LiteralString
 from utils.config import CFG
-from utils.load import load_mnist, load_fmnist
+from utils.load import load_mnist, load_fmnist, load_cifar, load_nmnist, load_dvs_gesture, load_cifar10_dvs
 from adv_rob_mnist_module import run_test as run_test_mnist
 from argparse import ArgumentParser, Namespace
 from time import strftime, localtime
 
 required_arguments:list[LiteralString] = "test_type prefix".split()
 
-TestType = Literal["mnist", "fmnist"]
+TestType = Literal["mnist", "fmnist", "cifar", "nmnist", "dvs_gesture", "cifar10_dvs"]
+
+# Dataset-specific input dimensions
+_DATASET_INPUT_SHAPES: dict[str, tuple[tuple[int,int], int]] = {
+    "mnist":  ((28, 28), 784),
+    "fmnist": ((28, 28), 784),
+    "cifar":  ((96, 32), 3072),  # S4NN convention: (3*32, 32)
+    "nmnist": ((64, 32), 2048),  # 2 polarity channels stacked vertically: (2*32, 32)
+    "dvs_gesture": ((256, 128), 32768),  # 2 polarity channels of 128x128 stacked
+    "cifar10_dvs": ((256, 128), 32768),  # same format as DVS Gesture
+}
+_DATASET_NUM_CLASSES: dict[str, int] = {
+    "mnist": 10, "fmnist": 10, "cifar": 10, "nmnist": 10, "dvs_gesture": 11,
+    "cifar10_dvs": 10,
+}
 
 def parse():
     parser = ArgumentParser()
@@ -58,8 +72,19 @@ if __name__ == "__main__":
             load_data_func = load_mnist
         case "fmnist":
             load_data_func = load_fmnist
+        case "cifar":
+            load_data_func = load_cifar
+        case "nmnist":
+            load_data_func = load_nmnist
+        case "dvs_gesture":
+            load_data_func = load_dvs_gesture
+        case "cifar10_dvs":
+            load_data_func = load_cifar10_dvs
         case _: raise NotImplementedError(f"Test type must be in {TestType}.")
-    
+
+    input_shape, input_size = _DATASET_INPUT_SHAPES[parser.test_type]
+    n_classes = _DATASET_NUM_CLASSES[parser.test_type]
+
     if all(hasattr(parser, s) for s in required_arguments):
         for iteration in range(parser.repeat):
             run_test_mnist(CFG(log_name=prepare_log_name(parser),
@@ -73,8 +98,8 @@ if __name__ == "__main__":
                         milp=parser.milp,
                         prefix_set_match=parser.psm,
                         adv_attack=parser.adv,
-                        n_layer_neurons=(28*28, parser.n_hidden_neurons, 10),
-                        layer_shapes=((28,28), (parser.n_hidden_neurons,1), (10,1)),
+                        n_layer_neurons=(input_size, parser.n_hidden_neurons, n_classes),
+                        layer_shapes=(input_shape, (parser.n_hidden_neurons,1), (n_classes,1)),
                         num_steps=parser.num_steps))
     else:
         raise ValueError("Not appropriate arguments.")

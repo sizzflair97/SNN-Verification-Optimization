@@ -15,3 +15,4 @@ out.pdf
 **/*.zip
 src/
 venv/
+paper/

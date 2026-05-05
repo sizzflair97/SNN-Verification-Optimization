@@ -7,7 +7,12 @@ from .config import CFG
 from .dictionary_mnist import *
 from .debug import info
 
-mgrid = np.mgrid[0:28, 0:28]
+_mgrid_cache: dict[tuple[int,int], np.ndarray] = {}
+def _get_mgrid(shape: tuple[int,int]) -> np.ndarray:
+    if shape not in _mgrid_cache:
+        _mgrid_cache[shape] = np.mgrid[0:shape[0], 0:shape[1]]
+    return _mgrid_cache[shape]
+
 def forward(cfg:CFG,
             weights_list:TWeightList,
             img:TImage,
@@ -17,7 +22,9 @@ def forward(cfg:CFG,
     n_layer_neurons = cfg.n_layer_neurons
     layer_shapes = cfg.layer_shapes
     num_steps = cfg.num_steps
-    SpikeImage = np.zeros((28,28,num_steps+1))
+    input_shape = layer_shapes[0]
+    mgrid = _get_mgrid(input_shape)
+    SpikeImage = np.zeros((*input_shape, num_steps+1))
     firingTime:list[np.ndarray[Any, np.dtype[np.float64]]] = []
     Spikes:list[np.ndarray[Any, np.dtype[np.float64]]] = []
     X = []
@@ -134,7 +141,20 @@ def prepare_weights(cfg:CFG, subtype:Literal["mnist", "fmnist"],load_data_func:d
     if train:
         raise NotImplementedError("The model must be trained from S4NN.")
     else:
-        subtype_prefix = [] if subtype == "mnist" else ["fm"]
+        if subtype == "mnist":
+            subtype_prefix = []
+        elif subtype == "fmnist":
+            subtype_prefix = ["fm"]
+        elif subtype == "cifar":
+            subtype_prefix = []  # CIFAR models use no prefix (e.g., 5_3072_512_10)
+        elif subtype == "nmnist":
+            subtype_prefix = ["nm"]
+        elif subtype == "dvs_gesture":
+            subtype_prefix = ["dg"]
+        elif subtype == "cifar10_dvs":
+            subtype_prefix = ["c10dvs"]
+        else:
+            raise ValueError(f"Unknown subtype: {subtype}")
         model_dir_path = "models/" + "_".join(subtype_prefix + [f"{num_steps}", *(str(i) for i in n_layer_neurons)])
         f"models/fm_{num_steps}_{'_'.join(str(i) for i in n_layer_neurons)}"
         weights_list:TWeightList = []

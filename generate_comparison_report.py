@@ -8,6 +8,7 @@ Phase 3 vs All Methods: Visual Summary Report
 import json
 from pathlib import Path
 
+
 def generate_comparison_report():
     report = """
 ╔════════════════════════════════════════════════════════════════════════════════╗
@@ -286,6 +287,6 @@ if __name__ == "__main__":
     with open("PHASE3_VS_ALL_METHODS.txt", "w", encoding="utf-8") as f:
         f.write(report)
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("✅ Report saved to: PHASE3_VS_ALL_METHODS.txt")
-    print("="*80)
+    print("=" * 80)

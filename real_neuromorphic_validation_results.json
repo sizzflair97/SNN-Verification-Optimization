@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-04-16T14:59:03.662841",
+  "datasets": {
+    "spiking_cifar": {
+      "shape": "(50, 32, 32, 20)",
+      "active_ratio": 50.69306640625,
+      "sparsity": 49.30693359375,
+      "entropy": 0,
+      "entropy_normalized": 0,
+      "temporal_distribution": 0.5069306492805481
+    },
+    "mnist": {
+      "shape": "(50, 28, 28)",
+      "active_ratio": 94.58928571428571,
+      "sparsity": 5.410714285714291,
+      "entropy": 0,
+      "entropy_normalized": 0,
+      "temporal_distribution": 0.945892870426178
+    }
+  },
+  "speedups": {
+    "spiking_cifar": 2.443365000984721,
+    "mnist": 2.4012901415279484
+  },
+  "summary": {
+    "mnist_baseline": 2.4012901415279484,
+    "neuromorphic_improvement": 1.7521772454369235,
+    "status": "VALIDATED - Ready for deployment"
+  }
+}

@@ -21,6 +21,7 @@ import os
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
+
 class ExtendedBenchmarkRunner:
     def __init__(self):
         self.results = {}
@@ -41,7 +42,7 @@ class ExtendedBenchmarkRunner:
         base_active = N * (1 - temporal_locality)
 
         # Adjust for network size (larger networks have better pruning)
-        pruning_factor = 1.0 / (1.0 + np.log(max(n_h/10, 1)))
+        pruning_factor = 1.0 / (1.0 + np.log(max(n_h / 10, 1)))
         active_pixels = base_active * pruning_factor
 
         # Time complexity
@@ -82,11 +83,7 @@ class ExtendedBenchmarkRunner:
 
         try:
             print("  📁 Loading weights...", end=" ", flush=True)
-            weights_list = prepare_weights(
-                cfg=cfg,
-                subtype=cfg.subtype,
-                load_data_func=cfg.load_data_func
-            )
+            weights_list = prepare_weights(cfg=cfg, subtype=cfg.subtype, load_data_func=cfg.load_data_func)
             print("✓")
 
             print("  📊 Loading data...", end=" ", flush=True)
@@ -128,14 +125,14 @@ class ExtendedBenchmarkRunner:
                 total_time = np.sum(times)
 
                 result = {
-                    'n_h': n_h,
-                    'delta': delta,
-                    'num_samples': len(times),
-                    'avg_time': avg_time,
-                    'total_time': total_time,
-                    'min_time': np.min(times),
-                    'max_time': np.max(times),
-                    'status': 'success'
+                    "n_h": n_h,
+                    "delta": delta,
+                    "num_samples": len(times),
+                    "avg_time": avg_time,
+                    "total_time": total_time,
+                    "min_time": np.min(times),
+                    "max_time": np.max(times),
+                    "status": "success",
                 }
 
                 print(f"\n  📊 Results:")
@@ -145,26 +142,17 @@ class ExtendedBenchmarkRunner:
 
                 return result
             else:
-                return {
-                    'n_h': n_h,
-                    'delta': delta,
-                    'status': 'failed'
-                }
+                return {"n_h": n_h, "delta": delta, "status": "failed"}
 
         except Exception as e:
             print(f"\n  ❌ Configuration failed: {str(e)}")
-            return {
-                'n_h': n_h,
-                'delta': delta,
-                'status': 'error',
-                'error': str(e)[:100]
-            }
+            return {"n_h": n_h, "delta": delta, "status": "error", "error": str(e)[:100]}
 
     def run_extended_benchmark(self):
         """Run all test configurations"""
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("🚀 EXTENDED BENCHMARK: LARGER NETWORKS & DELTAS")
-        print("="*80)
+        print("=" * 80)
 
         # Test configurations
         configs = [
@@ -173,12 +161,10 @@ class ExtendedBenchmarkRunner:
             (100, 3, 5, "Baseline + larger delta"),
             (200, 2, 5, "Verified medium"),
             (500, 2, 5, "Verified large"),
-
             # New: Larger networks
             (1000, 2, 3, "Large network - small delta"),
             (2000, 2, 3, "Very large network - small delta"),
             (5000, 2, 2, "Huge network - small delta"),
-
             # New: Larger deltas
             (100, 5, 4, "Medium network - medium delta"),
             (100, 10, 4, "Medium network - large delta"),
@@ -192,11 +178,11 @@ class ExtendedBenchmarkRunner:
             print(f"\n📍 {description}")
 
             result = self.test_configuration(n_h, delta, num_samples)
-            result['description'] = description
+            result["description"] = description
 
             # Add theoretical prediction
             predicted_time = self.theoretical_speedup(n_h, delta)
-            result['predicted_time'] = predicted_time
+            result["predicted_time"] = predicted_time
 
             results_list.append(result)
             self.results[f"n_h={n_h}_delta={delta}"] = result
@@ -205,20 +191,20 @@ class ExtendedBenchmarkRunner:
 
     def print_summary(self, results_list):
         """Print summary comparison"""
-        print("\n\n" + "="*80)
+        print("\n\n" + "=" * 80)
         print("📊 EXTENDED BENCHMARK SUMMARY")
-        print("="*80)
+        print("=" * 80)
         print()
 
         print(f"{'Config':<20} │ {'Measured':<12} │ {'Predicted':<12} │ {'Status':<8}")
-        print("─"*65)
+        print("─" * 65)
 
         for result in results_list:
-            if result['status'] == 'success':
+            if result["status"] == "success":
                 config = f"n_h={result['n_h']}, Δ={result['delta']}"
                 measured = f"{result['avg_time']:.4f}s"
                 predicted = f"{result['predicted_time']:.4f}s"
-                ratio = result['avg_time'] / result['predicted_time']
+                ratio = result["avg_time"] / result["predicted_time"]
                 ratio_str = f"({ratio:.1f}x)"
                 status = "✓ OK"
             else:
@@ -236,16 +222,20 @@ class ExtendedBenchmarkRunner:
         """Save results to file"""
         output_file = "extended_benchmark_results.json"
 
-        with open(output_file, 'w') as f:
-            json.dump({
-                'timestamp': str(Path.cwd()),
-                'results': results_list,
-                'notes': [
-                    'All times in seconds',
-                    'Measured using forward pass timing',
-                    'Larger networks and deltas marked as extended tests'
-                ]
-            }, f, indent=2)
+        with open(output_file, "w") as f:
+            json.dump(
+                {
+                    "timestamp": str(Path.cwd()),
+                    "results": results_list,
+                    "notes": [
+                        "All times in seconds",
+                        "Measured using forward pass timing",
+                        "Larger networks and deltas marked as extended tests",
+                    ],
+                },
+                f,
+                indent=2,
+            )
 
         print(f"\n✅ Results saved to: {output_file}")
 
@@ -253,22 +243,25 @@ class ExtendedBenchmarkRunner:
 def main():
     runner = ExtendedBenchmarkRunner()
 
-    print("""
+    print(
+        """
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║  Extended Benchmark: Larger Networks & Larger Deltas Testing             ║
 ║  ────────────────────────────────────────────────────────────────────────  ║
 ║  Goal: Validate theoretical speedup model beyond MNIST-simple cases       ║
 ╚════════════════════════════════════════════════════════════════════════════╝
-    """)
+    """
+    )
 
     results_list = runner.run_extended_benchmark()
     runner.print_summary(results_list)
     runner.save_results(results_list)
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("📋 Next Steps")
-    print("="*80)
-    print("""
+    print("=" * 80)
+    print(
+        """
 1. 결과 분석:
    - MNIST 특수성 재검증
    - Larger delta에서의 성능 확인
@@ -279,7 +272,8 @@ def main():
 3. 메모리 최적화 (필요시):
    - Current: ~100MB/layer
    - Target: ~10MB (embedded devices)
-    """)
+    """
+    )
 
 
 if __name__ == "__main__":
@@ -288,4 +282,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Benchmark failed: {e}")
         import traceback
+
         traceback.print_exc()

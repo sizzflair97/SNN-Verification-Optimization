@@ -1,6 +1,11 @@
 from typing import Annotated, Literal
 import numpy as np
-from z3 import ArithRef, BoolRef
+
+try:
+    from z3 import ArithRef, BoolRef
+except ImportError:
+    ArithRef = None
+    BoolRef = None
 import torch
 
 # Model default params

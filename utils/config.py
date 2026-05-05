@@ -16,7 +16,7 @@ from .dictionary_mnist import TImageBatch, TLabelBatch, image_len
 @dataclass
 class CFG:
     log_name:str
-    subtype:Literal["mnist", "fmnist"]
+    subtype:Literal["mnist", "fmnist", "cifar"]
     load_data_func:Callable[[Self,], tuple[TImageBatch,TLabelBatch,TImageBatch,TLabelBatch]]
     manual_indices:list[int]|None = None
     seed:int = 42
