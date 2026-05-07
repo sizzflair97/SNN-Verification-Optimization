@@ -1,49 +1,60 @@
 # Adversarial Robustness Verification for Spiking Neural Networks at Scale
 
 Reference implementation for the paper *Adversarial Robustness Verification
-for Spiking Neural Networks at Scale* (NeurIPS 2026 submission).
+for Spiking Neural Networks at Scale* (NeurIPS 2026 submission, double-blind).
 
-The verifier checks the local adversarial robustness of TTFS (time-to-first-spike)
+The verifier checks local adversarial robustness of TTFS (time-to-first-spike)
 spiking neural networks against an L¹-bounded perturbation of input spike
-times. The pipeline is sound and complete (verdicts match an exhaustive DFS
-oracle on every tested configuration). Three sound layers compose into one
-depth-first BnB driver:
+times. Every reported verdict is sound and complete (matches an exhaustive
+DFS oracle on every tested configuration).
 
-1. **Incremental voltage caching** — rank-1 update of the hidden potential
-   on each branch/unbranch (Sec. 4.1).
-2. **Voltage-margin temporal-causality filter** — drops pixels whose weight
-   is too small to cross any neuron's threshold margin (Sec. 4.2).
-3. **Budget-Coupled IBP (BC-IBP)** — solves a 0/1-knapsack DP at every
-   `(h, t)` to certify-prune whole subtrees under the joint L¹ budget
-   (Sec. 4.3).
+The pipeline composes four sound primitives into one depth-first BnB
+driver:
 
-The same engine also exposes Z3 (QF-LIRA) and PuLP/CBC (big-M MILP)
-encodings as principled sound-and-complete baselines (Sec. 3).
+1. **Incremental voltage caching** — rank-1 update of the hidden
+   potential on each branch/unbranch (paper §4).
+2. **Voltage-margin temporal-causality filter** — drops pixels whose
+   weight is below every threshold margin (paper §4).
+3. **Why not linear envelopes?** — vacuous-envelope theorem ruling out
+   CROWN-style bounds on the step activation (paper §5.1; Fig. 1).
+4. **Budget-Coupled IBP (BC-IBP)** — 0/1-knapsack DP per `(h, t)`
+   that certifies pruning under the joint L¹ budget (paper §5.2).
+5. **Cross-Layer Exact Bound (CLEB)** — input-perturbation enumeration
+   for multi-hidden networks at Δ ≤ 2; sound and tight by Theorem 4
+   (paper §5.3).
+
+Z3 (QF-LIRA) and PuLP/CBC (big-M MILP) encodings are included as
+principled sound-and-complete baselines (paper §3).
 
 ## Repository layout
 
 ```text
 code/
-├── adv_rob_mnist_module.py     Verifier core: Z3 / MILP / NumPy BnB drivers
-├── bnb_ibp.py                  BC-IBP and β-branching primitives
-├── batch_test.py               Single-run entry point (one (dataset, n_h, Δ))
-├── train_relu_to_ttfs.py       ReLU→TTFS conversion for multi-hidden experiments (App. D)
-├── mnist_download.py           Fetch raw MNIST under data/mnist/MNIST/raw/
-├── requirements.txt
+├── bnb_ibp.py                    BC-IBP and multi-hidden bound primitives
+├── bnb_ibp_pair.py               CLEB (cross-layer enumeration, GPU vectorised)
+├── adv_rob_mnist_module.py       Verifier core: Z3 / MILP / NumPy BnB drivers
+├── batch_test.py                 Single-run entry point ((dataset, n_h, Δ))
+├── train_relu_to_ttfs.py         Single-scalar ReLU→TTFS conversion (App. C.7)
 │
-├── *_benchmark.py              One driver per paper row (see "Reproducing experiments")
-├── temporal_sparsity_analysis.py   Per-sample temporal-concentration C aggregation (Fig. 4)
-├── test_bnb_ibp.py             BC-IBP soundness regression (single-hidden)
-├── test_multilayer_bcibp.py    BC-IBP soundness regression (multi-hidden, App. D)
-├── result_analysis.ipynb       Tables/figures from bench_results/ JSONs
-├── theoretical_analysis.ipynb  Perturbation-space scaling plot (Theorem 1)
+├── *_benchmark.py                One driver per paper row (see below)
+├── cleb_benchmark.py             Multi-hidden CLEB / oracle benchmark (Table 4)
+├── temporal_sparsity_analysis.py Per-sample C aggregation (Fig. 3)
+├── compute_input_distrib_metrics.py  Dataset-level C / entropy summaries
 │
-├── utils/                      CFG, dataset loaders, forward simulator, ANN trainer
-├── baseline/                   Banerjee et al. SMT baseline (rate-coded)
-├── S4NN/                       TTFS training (Kheradpisheh & Masquelier, 2020)
-├── snntorch/                   Vendored copy used by neuromorphic loaders
-├── data/                       Datasets (gitignored — see Datasets)
-└── models/                     Trained weights (gitignored — see Training)
+├── test_bnb_ibp.py               BC-IBP soundness regression (single-hidden)
+├── test_multilayer_bcibp.py      BC-IBP soundness regression (multi-hidden)
+│
+├── result_analysis.ipynb         Renders Tables 1–4 from bench_results JSONs
+├── theoretical_analysis.ipynb    Theorem 1 perturbation-space plot
+│
+├── utils/                        CFG, dataset loaders, forward simulator
+├── baseline/                     SMT baseline of Banerjee et al. (2023)
+├── S4NN/                         TTFS training (Kheradpisheh & Masquelier)
+├── snntorch/                     Vendored neuromorphic dataset loaders
+├── data/                         Datasets (gitignored — see Datasets)
+├── models/                       Trained weights (gitignored — see Training)
+└── archive_legacy/               Earlier conversion / pair-bound attempts
+                                  not used by the paper.
 ```
 
 The LaTeX source lives in the sibling `paper/` directory.
@@ -55,31 +66,35 @@ python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Tested on Python 3.12, Linux, AMD EPYC 7763. The verifier is single-thread CPU
-by design (`OMP_NUM_THREADS=1` is set on import). A GPU is only useful for the
-PyTorch ReLU pre-train in [train_relu_to_ttfs.py](train_relu_to_ttfs.py).
+Tested on Python 3.12, Linux, AMD EPYC 7763. The verifier itself is
+single-thread CPU by design (`OMP_NUM_THREADS=1` is set on import).
+A CUDA GPU is required only for the multi-hidden CLEB enumeration
+(`bnb_ibp_pair.ibp_prove_robust_multilayer_exact_gpu`) and the optional
+PyTorch ReLU pre-train.
 
 ## Datasets
 
 ```text
 data/
-├── mnist/MNIST/raw/        python mnist_download.py
-├── FashionMNIST/           torchvision auto-download (first run)
-├── cifar-10-batches-py/    torchvision auto-download (first run)
-├── nmnist/                 https://www.garrickorchard.com/datasets/n-mnist
-├── dvsgesture/             https://research.ibm.com/interactive/dvsgesture
-└── cifar10_dvs/            https://figshare.com/articles/CIFAR10-DVS_New/4724671
+├── mnist/MNIST/raw/              python mnist_download.py
+├── FashionMNIST/                 torchvision auto-download (first run)
+├── cifar-10-batches-py/          torchvision auto-download (first run)
+├── nmnist/                       https://www.garrickorchard.com/datasets/n-mnist
+├── dvsgesture/                   https://research.ibm.com/interactive/dvsgesture
+└── cifar10_dvs/                  https://figshare.com/articles/CIFAR10-DVS_New/4724671
 ```
 
-Loaders live in [utils/load.py](utils/load.py).
+Loaders live in [utils/load.py](utils/load.py). Event-driven datasets
+are TTFS-encoded once and cached as `*_ttfs_T{T}.npz` next to the raw
+files; subsequent runs reuse the cache.
 
 ## Training
 
-Single-hidden TTFS networks are trained with the original
-[S4NN](S4NN/) recipe; one script per dataset:
+Single-hidden TTFS networks use the original
+[S4NN](S4NN/) recipe; one driver per dataset:
 
 ```bash
-python S4NN/S4NN.py              # MNIST  (T=5,  n_h ∈ {10,…,500})
+python S4NN/S4NN.py              # MNIST  (T=5, n_h ∈ {10, …, 500})
 python S4NN/S4NN_fmnist.py       # FashionMNIST (T=256)
 python S4NN/S4NN_cifar.py        # CIFAR-10
 python S4NN/S4NN_nmnist.py       # N-MNIST
@@ -87,34 +102,24 @@ python S4NN/S4NN_dvs_gesture.py  # DVS Gesture
 python S4NN/S4NN_cifar10_dvs.py  # CIFAR10-DVS
 ```
 
-Each writes weights into `models/<T>_<n_in>_<n_h>_<n_out>/` (the layout that
-[utils/mnist_net.py](utils/mnist_net.py) `prepare_weights()` expects). The
-threshold is fixed at θ=100 across all experiments.
+Each writes weights into `models/<T>_<n_in>_<n_h>_<n_out>/` (the layout
+that [utils/mnist_net.py](utils/mnist_net.py) `prepare_weights()`
+expects). The threshold is fixed at θ = 100 across all experiments.
 
-The multi-hidden network of Appendix D is built by ReLU→TTFS conversion:
-
-```bash
-python train_relu_to_ttfs.py --hidden 100 100 --tmax 4 --epochs 5
-# writes models/5_784_100_100_10_relu2ttfs_thr1.0/weights_*.npy
-```
-
-## Single verification run
-
-[batch_test.py](batch_test.py) is the canonical entry point.
+The two multi-hidden TTFS fixtures used in Table 4 are produced by
+ReLU→TTFS conversion (paper App. C.7):
 
 ```bash
-# MNIST, T=5, n_h=200, Δ=2, full BC-IBP pipeline
-SNN_BNB_LEGACY_ACTIVE_SET=1 SNN_BNB_EFFICIENT=0 \
-SNN_BNB_IBP=1 SNN_BNB_IBP_COUPLED=1 SNN_BNB_IBP_EVERY=100 \
-python batch_test.py -p mnist_demo --test-type mnist --np \
-    --n-hidden-neurons 200 --num-steps 5 --delta-max 2 \
-    --num-samples 10 --seed 42
+python train_relu_to_ttfs.py --hidden 100 100 --tmax 4 --epochs 5  --scale 100
+python train_relu_to_ttfs.py --hidden 200 200 --tmax 4 --epochs 30 --scale 100
 ```
 
-Per-sample logs land in `log/<prefix>*.log`; a benchmark driver post-processes
-them into a JSON under `bench_results/`.
+These write `models/5_784_100_100_10/` and `models/5_784_200_200_10/`
+respectively.
 
-### CLI flags ([batch_test.py](batch_test.py))
+## CLI flags
+
+`batch_test.py` exposes the verifier:
 
 | Flag | Meaning |
 | --- | --- |
@@ -122,74 +127,71 @@ them into a JSON under `bench_results/`.
 | `--n-hidden-neurons` | Hidden width n_h |
 | `--num-steps` | Time horizon T |
 | `--delta-max` | L¹ perturbation budget Δ |
-| `--num-samples` | Number of test samples (default 14, paper uses 10) |
+| `--num-samples` | Number of test samples (paper uses 10) |
 | `--seed` | Sample-selection seed (paper: 42) |
 | `--np` | NumPy/Numba BnB backend (the paper's pipeline) |
-| `--milp` | MILP encoding via PuLP/CBC (Sec. 3.2) |
-| `--z3` | SMT encoding via Z3 (Sec. 3.1) |
-| `--adv` | Run a quick adversarial search before verification (early-exit on hits) |
+| `--milp` | MILP encoding via PuLP/CBC (paper §3) |
+| `--z3` | SMT encoding via Z3 (paper §3) |
 
-### Verifier environment variables
+Verifier environment variables (defaults shown in parentheses):
 
-| Variable | Effect |
-| --- | --- |
-| `SNN_BNB_LEGACY_ACTIVE_SET=1` | Sound voltage-margin filter (always set this for Δ ≥ 2) |
-| `SNN_BNB_EFFICIENT=0` | Disable the heuristic active-set (only sound at Δ=1) |
-| `SNN_BNB_IBP=1` | Enable BC-IBP |
-| `SNN_BNB_IBP_COUPLED=1` | Use the budget-coupled knapsack DP (Sec. 4.3); `=0` reproduces the uncoupled IBP ablation row |
-| `SNN_BNB_IBP_EVERY=K` | Call BC-IBP every K visited nodes (paper: κ=100) |
-| `SNN_BNB_BETA=1` | β-branching on BC-IBP (App. D, multi-hidden) |
-| `SNN_BNB_BETA_DEPTH` / `SNN_BNB_BETA_TOPK` | β recursion depth / branching width |
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `SNN_BNB_LEGACY_ACTIVE_SET` | 0 | Sound voltage-margin filter (set 1 for Δ ≥ 2) |
+| `SNN_BNB_EFFICIENT` | 1 | Heuristic active-set (set 0 to use only the sound filter) |
+| `SNN_BNB_IBP` | 0 | Enable BC-IBP |
+| `SNN_BNB_IBP_COUPLED` | 0 | Use the budget-coupled knapsack DP (paper §5.2); =0 reproduces the uncoupled IBP ablation row |
+| `SNN_BNB_IBP_EVERY` | 100 | Call BC-IBP every K visits (paper: κ = 100) |
 
 The paper's headline configuration (Tables 2–3) is
 `SNN_BNB_LEGACY_ACTIVE_SET=1 SNN_BNB_EFFICIENT=0 SNN_BNB_IBP=1 SNN_BNB_IBP_COUPLED=1 SNN_BNB_IBP_EVERY=100`.
 
 ## Reproducing the paper experiments
 
-Each driver writes a timestamped `bench_results/<name>_<ts>.json` and per-sample
-logs in `log/`. All drivers use seed 42, 10 samples per configuration, and a
-300 s per-sample timeout.
+All drivers use `--seed 42`, 10 samples per configuration, and a
+300 s per-sample timeout. Each writes a JSON to `bench_results/`.
 
-| Driver | Paper artifact |
+| Paper artefact | Driver / command |
 | --- | --- |
-| [realistic_large_benchmark.py](realistic_large_benchmark.py) | Tables 1–2 (small-N) and Fig. 3 — Z3 / MILP / DFS / BnB at n_h ∈ {100, 200, 300, 500}, Δ=1 |
-| [delta_high_benchmark.py](delta_high_benchmark.py) | Table 2 right block — Δ ∈ {2, 3, 4} sweep |
-| [fmnist_benchmark.py](fmnist_benchmark.py) | Table 4(a) — FashionMNIST, T=256, n_h ∈ {512, 1024}, Δ=2 |
-| [cifar_benchmark.py](cifar_benchmark.py) | Table 4(a) — CIFAR-10, T=5, n_h=512, Δ ∈ {1, 2} |
-| [nmnist_benchmark.py](nmnist_benchmark.py) | Table 4(b) — N-MNIST, n_h=100, Δ ∈ {1, 2} |
-| [dvs_gesture_benchmark.py](dvs_gesture_benchmark.py) | Table 4(b) — DVS Gesture, n_h=100 |
-| [dvs_gesture500_benchmark.py](dvs_gesture500_benchmark.py) | Table 4(b) — DVS Gesture, n_h=500 |
-| [cifar10_dvs_benchmark.py](cifar10_dvs_benchmark.py) | Table 4(b) — CIFAR10-DVS, n_h=100 |
-| [temporal_sparsity_analysis.py](temporal_sparsity_analysis.py) | Fig. 4 — temporal concentration C vs. BC-IBP time |
+| **Table 1** (small-N SMT vs. MILP vs. DFS) | `python batch_test.py -p small_N10  --test-type mnist --np --milp --z3 --num-steps 5 --delta-max 1 --n-hidden-neurons 10  --num-samples 14` and `--n-hidden-neurons 20`. |
+| **Table 2** (MNIST scaling, Δ ∈ {1, …, 4}, n_h ∈ {100, 200, 300, 500}) | `python realistic_large_benchmark.py` (Δ = 1) and `python delta_high_benchmark.py` (Δ ≥ 2). |
+| **Table 3 (a)** FMNIST | `python fmnist_benchmark.py` |
+| **Table 3 (a)** CIFAR-10 | `python cifar_benchmark.py` |
+| **Table 3 (b)** N-MNIST | `python nmnist_benchmark.py` |
+| **Table 3 (b)** DVS Gesture, n_h = 100 | `python dvs_gesture_benchmark.py` |
+| **Table 3 (b)** DVS Gesture, n_h = 500 | `python dvs_gesture500_benchmark.py` |
+| **Table 3 (b)** CIFAR10-DVS | `python cifar10_dvs_benchmark.py` |
+| **Table 4** (multi-hidden CLEB) | `python cleb_benchmark.py --hidden 100 100 --tmax 4 --delta {1,2}` and `--hidden 200 200`. |
+| **Table 5** (App. C.2 small-N detail) | Same as Table 1; `result_analysis.ipynb` aggregates. |
+| **Table 6** (App. C.3 κ sweep on sample 9144) | `for K in 10 20 50 100 200 500 1000; do SNN_BNB_IBP_EVERY=$K python batch_test.py -p kappa_$K --test-type mnist --np --n-hidden-neurons 500 --delta-max 2 --num-samples 1 --manual-indices 9144 --num-steps 5; done` |
+| **Table 7** (App. C.4 per-sample n_h = 500, Δ = 2) | Subset of `delta_high_benchmark.py` output, rendered by `result_analysis.ipynb`. |
+| **Figure 1** (vacuous envelope) | TikZ figure in [paper/main.tex](../paper/main.tex), no script. |
+| **Figure 2** (App. C.5 SMT/MILP scalability) | `result_analysis.ipynb` reads the `realistic_bench_*.json` files. |
+| **Figure 3** (App. C.6 temporal-sparsity scatter) | `python temporal_sparsity_analysis.py` |
+| **Figure 4** (verifier overview) | TikZ figure in `paper/main.tex`, no script. |
 
-The two notebooks consume these JSONs:
-
-- [result_analysis.ipynb](result_analysis.ipynb) renders Tables 1–4 and Fig. 3.
-- [theoretical_analysis.ipynb](theoretical_analysis.ipynb) plots the rate-vs-temporal
-  perturbation-space separation of Theorem 1.
-
-The κ-sweep of Table 3 reuses the BnB engine: re-run
-[batch_test.py](batch_test.py) on the n_h=500 / Δ=2 configuration with
-`SNN_BNB_IBP_EVERY` ∈ {10, 20, 50, 100, 200, 500, 1000}.
+`compute_input_distrib_metrics.py` reports per-dataset C and entropy
+summaries underlying §7.3.
 
 ## Soundness regressions
 
 ```bash
-python test_bnb_ibp.py           # single-hidden BC-IBP vs. forward simulation
-python test_multilayer_bcibp.py  # multi-hidden BC-IBP vs. exhaustive DFS oracle
+python test_bnb_ibp.py             # single-hidden BC-IBP vs. forward simulation
+python test_multilayer_bcibp.py    # multi-hidden BC-IBP vs. exhaustive DFS oracle
+python cleb_benchmark.py --hidden 100 100 --delta 1 --n-samples 10
+                                   # also serves as CLEB soundness check
 ```
 
-`test_multilayer_bcibp.py` reproduces Table 7 (Appendix D) on the
-ReLU-converted 784→100→100→10 network.
+The multi-hidden tests reproduce the soundness validation of
+Appendix C.7.
 
-## Acknowledgements
+## Acknowledgements (third-party code)
 
-- The SMT baseline in [baseline/](baseline/) is adapted from
-  [Soham-Banerjee/SMT-Encoding-for-Spiking-Neural-Network](https://github.com/Soham-Banerjee/SMT-Encoding-for-Spiking-Neural-Network)
-  (Banerjee et al., 2023).
-- The temporal-coded training in [S4NN/](S4NN/) is from
-  [SRKH/S4NN](https://github.com/SRKH/S4NN)
+- The SMT baseline in [baseline/](baseline/) is adapted from the
+  open-source release of Banerjee et al. (2023) — see paper.
+- The TTFS training in [S4NN/](S4NN/) is from the original S4NN release
   (Kheradpisheh & Masquelier, 2020).
-- [snntorch/](snntorch/) is a vendored copy of
-  [jeshraghian/snntorch](https://github.com/jeshraghian/snntorch),
-  used only for the neuromorphic dataset loaders.
+- [snntorch/](snntorch/) is a vendored copy used only for the
+  neuromorphic dataset loaders.
+
+All other code is original.

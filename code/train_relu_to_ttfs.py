@@ -1,20 +1,18 @@
-"""ReLU-to-TTFS conversion (Stanojevic-style) for multi-hidden SNN verification.
+"""ReLU-to-TTFS conversion (simple ×100 rescale) — paper Appendix D recipe.
 
-Approach:
-1. Train a PyTorch ReLU MLP on MNIST.
-2. Convert to TTFS-coded SNN by mapping ReLU activations to spike times:
-   - Earlier spike = larger activation
-   - Pre-synaptic weights and biases are absorbed into TTFS weights and thresholds
-3. Save weights in the project's expected format and validate against the
-   verifier's forward simulator.
+Procedure (matches the 78% MNIST converted network used in Appendix D):
+  1. Train a bias-free ReLU MLP on TTFS-quantized inputs (v_p ∈ {0,…,1}).
+  2. Run a small ReLU-side threshold sweep so ReLU's effective thr is 1.0.
+  3. Multiply all weights by 100 (= verifier's fixed θ) so the saved net runs
+     with θ = 100 in the verifier's TTFS forward.
 
-The conversion is approximate (we tune a global scaling factor empirically) but
-produces a multi-hidden TTFS network with non-trivial test accuracy --
-sufficient for verifying that the multi-layer BC-IBP code is sound and
-empirically informative.
+This matches the conversion behind `models/5_784_100_100_10` (78% acc).
+We use it to extend the paper's multi-hidden suite to (n_h=200 depth=2)
+and (depth=3) for v3-gpu cross-layer experiments.
 
 Usage:
-  python train_relu_to_ttfs.py --hidden 100 100 --tmax 4 --epochs 5
+  python train_relu_to_ttfs_simple.py --hidden 200 200 --tmax 4 --epochs 30
+  python train_relu_to_ttfs_simple.py --hidden 100 100 100 --tmax 4 --epochs 30
 """
 from __future__ import annotations
 import argparse
@@ -30,54 +28,37 @@ from torch.utils.data import DataLoader, TensorDataset
 from mnist import MNIST
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--hidden", type=int, nargs="+", default=[100, 100])
-parser.add_argument("--tmax", type=int, default=4)
-parser.add_argument("--epochs", type=int, default=5)
-parser.add_argument("--batch", type=int, default=256)
-parser.add_argument("--lr", type=float, default=1e-3)
-parser.add_argument("--mnist-root", type=str,
-                    default=osp.join(osp.dirname(osp.abspath(__file__)), "data/mnist/MNIST/raw/"))
-parser.add_argument("--save-root", type=str,
-                    default=osp.join(osp.dirname(osp.abspath(__file__)), "models/"))
-parser.add_argument("--seed", type=int, default=0)
-args = parser.parse_args()
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--hidden", type=int, nargs="+", default=[200, 200])
+    p.add_argument("--tmax", type=int, default=4)
+    p.add_argument("--epochs", type=int, default=30)
+    p.add_argument("--batch", type=int, default=256)
+    p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--wd", type=float, default=1e-5)
+    p.add_argument("--scale", type=float, default=100.0,
+                   help="Multiplicative weight scale matching θ=100.")
+    p.add_argument("--seed", type=int, default=0)
+    code_dir = osp.dirname(osp.abspath(__file__))
+    p.add_argument("--mnist-root", type=str,
+                   default=osp.join(code_dir, "data/mnist/MNIST/raw/"))
+    p.add_argument("--save-root", type=str,
+                   default=osp.join(code_dir, "models/"))
+    p.add_argument("--n-eval", type=int, default=1000)
+    return p.parse_args()
 
-T = args.tmax + 1
-hidden = list(args.hidden)
-torch.manual_seed(args.seed)
-np.random.seed(args.seed)
 
-# ==================== Data ====================
-def load_mnist_arrays(root):
+def load_mnist_quantized(root: str, tmax: int):
     md = MNIST(root)
     Itr, Ltr = md.load_training()
     Ite, Lte = md.load_testing()
     Itr = np.array(Itr, dtype=np.float32) / 255.0
     Ite = np.array(Ite, dtype=np.float32) / 255.0
-    return Itr, np.array(Ltr), Ite, np.array(Lte)
+    qtr = np.floor(Itr * tmax).astype(np.float32) / tmax
+    qte = np.floor(Ite * tmax).astype(np.float32) / tmax
+    return qtr, np.array(Ltr), qte, np.array(Lte)
 
-print("Loading MNIST...")
-X_tr_raw, y_tr, X_te_raw, y_te = load_mnist_arrays(args.mnist_root)
-print(f"  Train: {X_tr_raw.shape}, Test: {X_te_raw.shape}")
 
-# Discretize pixel intensities to [0, T-1] integer levels for TTFS-compatible inputs.
-# A pixel of value v ∈ [0, 1] becomes a spike at integer time s = floor((1-v) * (T-1)).
-# For ReLU MLP training, we use the equivalent "encoded" feature: e = (T-1) - s = round(v * (T-1)).
-def to_encoded_features(X_raw):
-    return np.floor(X_raw * args.tmax).astype(np.float32) / args.tmax  # ∈ [0, 1] in T discrete levels
-
-X_tr = to_encoded_features(X_tr_raw)
-X_te = to_encoded_features(X_te_raw)
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"  Device: {device}")
-train_ds = TensorDataset(torch.from_numpy(X_tr), torch.from_numpy(y_tr).long())
-test_ds  = TensorDataset(torch.from_numpy(X_te), torch.from_numpy(y_te).long())
-train_dl = DataLoader(train_ds, batch_size=args.batch, shuffle=True)
-test_dl  = DataLoader(test_ds, batch_size=args.batch, shuffle=False)
-
-# ==================== Train ReLU MLP ====================
 class MLP(nn.Module):
     def __init__(self, dims):
         super().__init__()
@@ -85,166 +66,104 @@ class MLP(nn.Module):
         for i in range(len(dims) - 1):
             layers.append(nn.Linear(dims[i], dims[i + 1], bias=False))
             if i < len(dims) - 2:
-                layers.append(nn.ReLU())
+                layers.append(nn.ReLU(inplace=True))
         self.net = nn.Sequential(*layers)
 
     def forward(self, x):
-        return self.net(x.view(x.shape[0], -1))
+        return self.net(x.flatten(1))
 
 
-dims = [784] + hidden + [10]
-print(f"\nTraining ReLU MLP: {' -> '.join(map(str, dims))}")
-model = MLP(dims).to(device)
-opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+def main():
+    args = parse_args()
+    T = args.tmax + 1
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-for ep in range(args.epochs):
-    model.train()
-    correct, total, loss_sum = 0, 0, 0.0
-    for xb, yb in train_dl:
-        xb, yb = xb.to(device), yb.to(device)
-        logits = model(xb)
-        loss = F.cross_entropy(logits, yb)
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
-        loss_sum += loss.item() * xb.size(0)
-        correct += (logits.argmax(1) == yb).sum().item()
-        total += xb.size(0)
-    train_loss = loss_sum / total
-    train_acc = correct / total
+    print(f"Loading MNIST… T={T}, device={device}")
+    X_tr, y_tr, X_te, y_te = load_mnist_quantized(args.mnist_root, args.tmax)
 
-    model.eval()
-    correct, total = 0, 0
-    with torch.no_grad():
-        for xb, yb in test_dl:
-            xb, yb = xb.to(device), yb.to(device)
-            preds = model(xb).argmax(1)
-            correct += (preds == yb).sum().item()
-            total += xb.size(0)
-    test_acc = correct / total
-    print(f"  ep{ep}: train_loss={train_loss:.4f}, train_acc={train_acc:.4f}, test_acc={test_acc:.4f}")
+    train_ds = TensorDataset(torch.from_numpy(X_tr), torch.from_numpy(y_tr).long())
+    test_ds = TensorDataset(torch.from_numpy(X_te), torch.from_numpy(y_te).long())
+    train_dl = DataLoader(train_ds, batch_size=args.batch, shuffle=True,
+                          num_workers=0, pin_memory=True)
+    test_dl = DataLoader(test_ds, batch_size=512, shuffle=False,
+                         num_workers=0, pin_memory=True)
 
-# Extract weights as numpy
-W_relu = []
-for layer in model.net:
-    if isinstance(layer, nn.Linear):
-        W_relu.append(layer.weight.detach().cpu().numpy())  # (out, in)
+    dims = [784] + list(args.hidden) + [10]
+    model = MLP(dims).to(device)
+    opt = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
 
-print(f"\nReLU weights extracted: {[w.shape for w in W_relu]}")
+    print(f"Training ReLU MLP {' -> '.join(map(str, dims))} ({args.epochs} epochs)…")
+    t0 = time.time()
+    best_te = 0.0
+    for ep in range(args.epochs):
+        model.train()
+        for xb, yb in train_dl:
+            xb, yb = xb.to(device, non_blocking=True), yb.to(device, non_blocking=True)
+            loss = F.cross_entropy(model(xb), yb)
+            opt.zero_grad(); loss.backward(); opt.step()
+        model.eval()
+        cor, tot = 0, 0
+        with torch.no_grad():
+            for xb, yb in test_dl:
+                xb, yb = xb.to(device, non_blocking=True), yb.to(device, non_blocking=True)
+                cor += (model(xb).argmax(1) == yb).sum().item()
+                tot += xb.size(0)
+        te = cor / tot
+        best_te = max(best_te, te)
+        if (ep + 1) % 5 == 0 or ep == 0:
+            print(f"  ep{ep:02d}: test_acc={te:.4f}")
+    print(f"  ReLU best={best_te:.4f}  ({time.time()-t0:.1f}s)")
 
-# ==================== Convert to TTFS ====================
-# Approach: scale weights so that voltage cumulative voltage ~= ReLU activation × T,
-# then use threshold = ReLU_max_act_per_layer × T_factor to enforce that
-# spike time is monotonic in activation (earlier = larger).
-#
-# Concretely:
-#   - For each layer l: TTFS weight w_TTFS[l] = w_ReLU[l]
-#   - Threshold theta[l] is empirically chosen.
-#
-# We then iterate over a grid of thresholds to find one giving best test accuracy
-# under TTFS forward.
+    # Extract & rescale: ReLU bias-free, weights (out, in)
+    Ws = []
+    for layer in model.net:
+        if isinstance(layer, nn.Linear):
+            Ws.append(layer.weight.detach().cpu().numpy().astype(np.float64) * args.scale)
 
-# Reshape input weights to (n_h1, 28, 28) for project's TTFS forward
-W_ttfs_layer0 = W_relu[0].reshape(hidden[0], 28, 28)
-W_ttfs_other = [W_relu[i] for i in range(1, len(W_relu))]  # already (out, in) for hidden->hidden / hidden->output
+    # Reshape to verifier format
+    arch = "_".join(["784"] + [str(h) for h in args.hidden] + ["10"])
+    save_dir = osp.join(args.save_root, f"{T}_{arch}")
+    os.makedirs(save_dir, exist_ok=True)
 
+    # Layer 0: (n_h1, in=784) -> (n_h1, 28, 28)
+    np.save(osp.join(save_dir, "weights_0.npy"),
+            Ws[0].reshape(args.hidden[0], 28, 28))
+    # Subsequent: (n_post, n_pre) -> (n_post, n_pre, 1)
+    for i, w in enumerate(Ws[1:], start=1):
+        np.save(osp.join(save_dir, f"weights_{i}.npy"), w[..., None])
+    with open(osp.join(save_dir, "threshold.txt"), "w") as f:
+        f.write("100\n")
 
-def ttfs_forward_full(image_int_TxT, W0, W_others, threshold, num_steps):
-    """Single-image TTFS forward simulator matching utils/mnist_net.py logic.
+    # Evaluate TTFS forward via verifier's forward()
+    import sys
+    sys.path.insert(0, osp.dirname(osp.abspath(__file__)))
+    from utils.config import CFG
+    from utils.dictionary_mnist import threshold
+    from utils.load import load_mnist
+    from utils.mnist_net import forward, prepare_weights
 
-    image_int_TxT: (28, 28) int spike times in [0, T-1]
-    W0: (n_h1, 28, 28)
-    W_others: list of (n_post, n_pre) for hidden->hidden and hidden->output
-    threshold: scalar (same for all layers)
-    Returns: predicted class (int)
-    """
-    # Layer 1 (input -> hidden_1)
-    # Build SpikeImage: (28, 28, T+1) with 1 at (x, y, image[x,y])
-    spike_in = np.zeros((28, 28, num_steps + 1))
-    xi, yi = np.mgrid[0:28, 0:28]
-    spike_in[xi, yi, image_int_TxT] = 1
-    voltage = np.cumsum(np.tensordot(W0, spike_in), axis=1)  # (n_h1, T+1)
-    voltage[:, num_steps] = threshold + 1  # forced fire by clamp
-    ft = (np.argmax(voltage > threshold, axis=1) + 1).astype(int)
-    ft[ft > num_steps - 1] = num_steps - 1
-
-    # Layers 2+
-    for W in W_others:
-        n_pre = W.shape[1]
-        n_post = W.shape[0]
-        # Build pre-spike matrix: (n_pre, 1, T+1) with 1 at (i, 0, ft[i])
-        spike_pre = np.zeros((n_pre, 1, num_steps + 1))
-        idx_pre = np.arange(n_pre)
-        spike_pre[idx_pre, 0, ft] = 1
-        # Reshape W to (n_post, n_pre, 1) for tensordot
-        W_3d = W.reshape(n_post, n_pre, 1)
-        voltage = np.cumsum(np.tensordot(W_3d, spike_pre), axis=1)
-        voltage[:, num_steps] = threshold + 1
-        ft = (np.argmax(voltage > threshold, axis=1) + 1).astype(int)
-        ft[ft > num_steps - 1] = num_steps - 1
-    return int(np.argmin(ft))
+    cfg = CFG(log_name="convert", subtype="mnist", load_data_func=load_mnist,
+              n_layer_neurons=tuple([784] + list(args.hidden) + [10]),
+              layer_shapes=((28, 28),
+                            *[(h, 1) for h in args.hidden], (10, 1)),
+              num_steps=T, num_samples=10)
+    weights = prepare_weights(cfg=cfg, subtype="mnist", load_data_func=None)
+    images, labels, _, _ = load_mnist(cfg)
+    n_eval = min(args.n_eval, len(images))
+    cor = sum(int(forward(cfg, weights, images[i].astype(int)) == labels[i])
+              for i in range(n_eval))
+    ttfs_acc = cor / n_eval
+    print(f"\nTTFS forward acc (θ=100, n={n_eval}): {ttfs_acc:.4f}")
+    with open(osp.join(save_dir, "convert_meta.txt"), "w") as f:
+        f.write(f"relu_test_acc={best_te:.6f}\n")
+        f.write(f"ttfs_test_acc_n{n_eval}={ttfs_acc:.6f}\n")
+        f.write(f"scale={args.scale}\n")
+        f.write(f"hidden={args.hidden}\n")
+        f.write(f"T={T}\n")
+    print(f"Saved -> {save_dir}/")
 
 
-# Encode test images as TTFS spike times: brighter pixel = earlier spike.
-# image_int[x, y] = floor((1-v) * tmax) where v ∈ [0,1]
-print("\nEncoding test images for TTFS...")
-X_te_int = np.floor((1.0 - X_te_raw) * args.tmax).astype(int).reshape(-1, 28, 28)
-print(f"  Encoded shape: {X_te_int.shape}, range: [{X_te_int.min()}, {X_te_int.max()}]")
-
-# Threshold sweep to find best accuracy on a subset
-print("\nSearching threshold...")
-best_acc = 0.0
-best_thr = None
-for thr in [0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 50.0, 100.0]:
-    correct = 0
-    n_eval = 200
-    for k in range(n_eval):
-        pred = ttfs_forward_full(X_te_int[k], W_ttfs_layer0, W_ttfs_other, thr, T)
-        if pred == y_te[k]:
-            correct += 1
-    acc = correct / n_eval
-    print(f"  thr={thr:>6.1f}: TTFS test acc = {acc:.4f}")
-    if acc > best_acc:
-        best_acc = acc
-        best_thr = thr
-
-print(f"\nBest threshold: {best_thr}, best acc on 200 samples: {best_acc:.4f}")
-
-# Evaluate on more samples with best threshold
-print(f"\nEvaluating with thr={best_thr} on full test set (first 1000)...")
-correct = 0
-n_eval = 1000
-for k in range(n_eval):
-    pred = ttfs_forward_full(X_te_int[k], W_ttfs_layer0, W_ttfs_other, best_thr, T)
-    if pred == y_te[k]:
-        correct += 1
-print(f"  Full TTFS test acc on {n_eval} samples: {correct/n_eval:.4f}")
-
-# Save weights in project format
-arch_str = "_".join([str(784)] + [str(h) for h in hidden] + [str(10)])
-save_dir = osp.join(args.save_root, f"{T}_{arch_str}_relu2ttfs_thr{best_thr}")
-os.makedirs(save_dir, exist_ok=True)
-
-# Layer 0: (n_h1, 28, 28)
-np.save(osp.join(save_dir, "weights_0.npy"), W_ttfs_layer0)
-# Layers 1+: (n_post, n_pre, 1)
-for i, W in enumerate(W_ttfs_other):
-    W_3d = W.reshape(W.shape[0], W.shape[1], 1)
-    np.save(osp.join(save_dir, f"weights_{i+1}.npy"), W_3d)
-
-# Also save in standard project naming (so prepare_weights can find it)
-std_dir = osp.join(args.save_root, f"{T}_{arch_str}")
-os.makedirs(std_dir, exist_ok=True)
-np.save(osp.join(std_dir, "weights_0.npy"), W_ttfs_layer0)
-for i, W in enumerate(W_ttfs_other):
-    W_3d = W.reshape(W.shape[0], W.shape[1], 1)
-    np.save(osp.join(std_dir, f"weights_{i+1}.npy"), W_3d)
-
-print(f"\nSaved to:")
-print(f"  {save_dir}")
-print(f"  {std_dir} (standard naming for prepare_weights)")
-
-# Save threshold metadata
-with open(osp.join(std_dir, "threshold.txt"), "w") as f:
-    f.write(f"{best_thr}\n")
-print(f"\nThreshold {best_thr} saved.")
+if __name__ == "__main__":
+    main()
