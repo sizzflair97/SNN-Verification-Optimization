@@ -195,3 +195,41 @@ Appendix C.7.
   neuromorphic dataset loaders.
 
 All other code is original.
+
+## Continuous-time LIF BnB
+
+The LIF verifier is separate from the cumulative-IF pipeline:
+
+- `lif_bnb_ibp.py` implements sound alpha-PSP interval bounds, subtree MCKP,
+  NumPy/Torch backends, adaptive time cells, and recursive multilayer propagation.
+- `lif_bnb.py` implements complete finite-domain DFS/BnB. A `robust` verdict is
+  emitted only after every canonical integer time-shift assignment is either
+  evaluated exactly or removed by a sound bound.
+- `lif_bnb_experiments.py` runs resumable h350 paper-protocol experiments and
+  writes one fsynced JSON object per completed job under `bench_results/lif/`.
+
+The reference checkpoint is
+`/data/SNN-Verification-Optimization/models/lif_goltz_ct_784_350_10_seed0/best.pt`.
+The default runner requires the epoch-26 SHA-256
+`a7c7c660857bec105abad959fa546de840f63634687ed19fc838546c7c257eac`
+and snapshots it to `bench_results/lif/checkpoints/<sha256>.pt` before workers
+start. This prevents a concurrently running trainer from mixing checkpoints.
+For its `[0.15, 2.0]` input interval and the paper's `T=5` protocol, one
+integer shift is `eta=(2.0-0.15)/(5-1)=0.4625`.
+
+```bash
+PYTHONPATH=code /opt/conda/envs/snn-verification/bin/python code/test_lif_bnb.py
+PYTHONPATH=code /opt/conda/envs/snn-verification/bin/python code/lif_bnb_experiments.py --suite pilot --backend torch
+PYTHONPATH=code /opt/conda/envs/snn-verification/bin/python code/lif_bnb_experiments.py --suite table1 --workers 8
+PYTHONPATH=code /opt/conda/envs/snn-verification/bin/python code/lif_bnb_experiments.py --suite scaling --workers 8
+PYTHONPATH=code /opt/conda/envs/snn-verification/bin/python code/lif_bnb_experiments.py --suite kappa --workers 7
+PYTHONPATH=code /opt/conda/envs/snn-verification/bin/python code/lif_bnb_experiments.py --suite incidence --workers 8
+```
+
+Verdicts are `robust`, `not_robust`, `timeout`, `numerical_unknown`, or
+`error`. Every `not_robust` row contains a full integer shift vector, sparse
+shift map, perturbed spike times, L1 cost, and independently replayed
+checkpoint prediction. SMT/MILP rows and experiments lacking a LIF checkpoint
+are explicitly represented in `coverage_manifest.json` as `N/A` or
+`pending_checkpoint`; they are never silently compared with a discretized
+surrogate.
