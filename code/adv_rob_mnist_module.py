@@ -6,6 +6,7 @@ from random import seed, Random
 import hashlib
 from typing import Any
 from collections.abc import Generator
+import json
 import time, logging, pdb
 
 import os
@@ -528,7 +529,12 @@ def run_test(cfg: CFG):
     np.random.seed(cfg.seed)
 
     weights_list = prepare_weights(cfg=cfg, subtype=cfg.subtype, load_data_func=cfg.load_data_func)
-    images, labels, *_ = cfg.load_data_func(cfg)
+    images, labels, images_test, labels_test = cfg.load_data_func(cfg)
+    data_split = os.environ.get("SNN_DATA_SPLIT", "train").lower()
+    if data_split == "test":
+        images, labels = images_test, labels_test
+    elif data_split != "train":
+        raise ValueError("SNN_DATA_SPLIT must be either 'train' or 'test'")
     if cfg.manual_indices is not None:
         images = images[cfg.manual_indices]
         labels = labels[cfg.manual_indices]
@@ -782,6 +788,30 @@ def run_test(cfg: CFG):
                                         witness_pred != orig_pred
                                     ), f"Incremental mismatch: witness_pred={witness_pred}, orig_pred={orig_pred}"
                                     print(f"Adversarial found: pred={witness_pred}, L1_cost={l1_cost}.")
+                                    witness_path = os.environ.get("SNN_WITNESS_PATH")
+                                    if witness_path:
+                                        changed = np.argwhere(pixel_img != img)
+                                        witness = {
+                                            "sample_no": int(sample_no),
+                                            "delta": int(delta),
+                                            "orig_pred": int(orig_pred),
+                                            "witness_pred": int(witness_pred),
+                                            "l1_cost": l1_cost,
+                                            "num_changed_pixels": int(len(changed)),
+                                            "changes": [
+                                                {
+                                                    "coordinate": [int(px), int(py)],
+                                                    "from": int(img[px, py]),
+                                                    "to": int(pixel_img[px, py]),
+                                                }
+                                                for px, py in changed
+                                            ],
+                                        }
+                                        witness_file = Path(witness_path)
+                                        witness_file.parent.mkdir(parents=True, exist_ok=True)
+                                        witness_file.write_text(
+                                            json.dumps(witness, indent=2) + "\n"
+                                        )
                                     found_adversarial[0] = True
                                 return
 

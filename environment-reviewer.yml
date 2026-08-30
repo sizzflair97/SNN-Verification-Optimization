@@ -1,0 +1,22 @@
+name: snn-verification
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu121
+      - numpy==2.2.6
+      - numba==0.66.0
+      - torch==2.5.1+cu121
+      - torchvision==0.20.1+cu121
+      - tqdm==4.69.1
+      - z3-solver==4.8.16.0
+      - scikit-learn==1.9.0
+      - python-mnist==0.7
+      - PuLP==3.3.2
+      - spikingjelly==0.0.0.0.14
+      - nir==1.0.8
+      - nirtorch==2.6
+      # z3-solver 4.8.16 imports pkg_resources.
+      - setuptools==80.10.2

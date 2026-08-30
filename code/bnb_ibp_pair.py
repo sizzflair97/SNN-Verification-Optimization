@@ -33,6 +33,7 @@ from bnb_ibp import (
     _spike_bounds_from_voltage,
     _output_voltage_bounds,
     _check_robust_from_s_h,
+    ibp_prove_robust_multilayer,
 )
 
 
@@ -542,6 +543,8 @@ def enumerate_output_voltage_bounds_vec(
     chunks of (single-pixel batch) and (double-pixel pair batch) through
     the batched forward.
     """
+    if rem_neg + rem_pos > 2:
+        raise ValueError("Exact CLEB enumeration supports only total budget Delta <= 2")
     img_h, img_w = pixel_img.shape[:2]
     t_grid = np.arange(T + 1)
     fire_mask_base = (pixel_img[..., None] <= t_grid[None, None, :]).astype(np.float64)
@@ -616,6 +619,8 @@ def _enumerate_gpu(
     device: str | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """GPU PyTorch port of enumerate_output_voltage_bounds_vec."""
+    if rem_neg + rem_pos > 2:
+        raise ValueError("Exact CLEB GPU enumeration supports only total budget Delta <= 2")
     import torch
 
     if device is None:
@@ -717,6 +722,18 @@ def ibp_prove_robust_multilayer_exact_gpu(
     """GPU exact-bound prover (small Δ_rem ≤ 2)."""
     if rem_neg + rem_pos == 0:
         return True
+    if rem_neg + rem_pos > 2:
+        return ibp_prove_robust_multilayer(
+            pixel_img=pixel_img,
+            remaining_pixels=remaining_pixels,
+            rem_neg=rem_neg,
+            rem_pos=rem_pos,
+            weights_list=weights_list,
+            num_steps=num_steps,
+            threshold=threshold,
+            orig_pred=orig_pred,
+            num_classes=num_classes,
+        )
     if len(weights_list) < 2:
         return True
     w1 = weights_list[0]
@@ -763,6 +780,18 @@ def ibp_prove_robust_multilayer_exact_vec(
     """
     if rem_neg + rem_pos == 0:
         return True
+    if rem_neg + rem_pos > 2:
+        return ibp_prove_robust_multilayer(
+            pixel_img=pixel_img,
+            remaining_pixels=remaining_pixels,
+            rem_neg=rem_neg,
+            rem_pos=rem_pos,
+            weights_list=weights_list,
+            num_steps=num_steps,
+            threshold=threshold,
+            orig_pred=orig_pred,
+            num_classes=num_classes,
+        )
     n_layers_total = len(weights_list)
     if n_layers_total < 2:
         return True

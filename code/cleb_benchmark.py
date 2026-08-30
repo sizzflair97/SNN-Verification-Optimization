@@ -41,6 +41,7 @@ def parse_args():
     p.add_argument("--delta", type=int, default=1)
     p.add_argument("--n-samples", type=int, default=10)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--split", choices=("train", "test"), default="test")
     p.add_argument("--oracle-timeout", type=float, default=300.0)
     p.add_argument("--save-dir", type=str, default="bench_results")
     return p.parse_args()
@@ -138,6 +139,11 @@ def cleb_root(weights, img, orig_pred, delta, T):
 
 def main():
     args = parse_args()
+    if args.delta > 2:
+        raise SystemExit(
+            "CLEB exact enumeration is supported only for Delta <= 2; "
+            "use delta_high_benchmark.py to measure BC-IBP at larger budgets."
+        )
     T = args.tmax + 1
     n_layer_neurons = tuple([784] + list(args.hidden) + [10])
     layer_shapes = ((28, 28), *[(h, 1) for h in args.hidden], (10, 1))
@@ -159,9 +165,21 @@ def main():
     weights = prepare_weights(cfg=cfg, subtype="mnist", load_data_func=load_mnist)
     print(f"Loaded {len(weights)} weight layers, shapes: {[w.shape for w in weights]}")
 
-    images, labels, *_ = load_mnist(cfg)
+    images_train, labels_train, images_test, labels_test = load_mnist(cfg)
+    if args.split == "test":
+        images, labels = images_test, labels_test
+    else:
+        images, labels = images_train, labels_train
     np.random.seed(args.seed)
-    indices = np.random.permutation(len(images))[:args.n_samples]
+    indices = []
+    for idx in np.random.permutation(len(images)):
+        firing_times = []
+        pred = int(forward(cfg, weights, images[int(idx)], firing_times))
+        unique = int((firing_times[-1] == np.min(firing_times[-1])).sum()) == 1
+        if pred == int(labels[int(idx)]) and unique:
+            indices.append(int(idx))
+        if len(indices) == args.n_samples:
+            break
 
     rows = []
     print(f"\n{'idx':>5} {'pred':>4} {'true':>4} {'fwd':>4} | "

@@ -2,9 +2,12 @@
 data/
 models/
 Models/
-code/data/
-code/models/
-code/Models/
+/code/data
+/code/models
+/code/Models
+/code/data/
+/code/models/
+/code/Models/
 
 # Z3 cached SMT expression dumps (>50 MB each)
 eqn/
@@ -32,3 +35,9 @@ venv/
 
 # Archived material — kept locally, not committed
 archive/
+/paper/
+/reports/
+/poster_sigpl
+/log.zip
+/out.pdf
+/PertExample.pdf

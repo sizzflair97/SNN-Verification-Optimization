@@ -81,7 +81,8 @@ def load_fmnist(cfg: CFG) -> tuple[TImageBatch, TLabelBatch, TImageBatch, TLabel
                 )
             )
             labels.append(cats.index(Labels[i]))
-    Images, Labels = fmdata.data.numpy(), fmdata.targets.numpy()
+    fmdata_test = FashionMNIST("./data/", train=False, download=True)
+    Images, Labels = fmdata_test.data.numpy(), fmdata_test.targets.numpy()
     Images = np.array(Images)
     for i in range(len(Labels)):
         if Labels[i] in cats:
