@@ -79,6 +79,11 @@ def parse_args() -> argparse.Namespace:
     code_dir = osp.dirname(osp.abspath(__file__))
     p.add_argument("--mnist-root", default=osp.join(code_dir, "data/mnist/MNIST/raw/"))
     p.add_argument("--save-root", default=osp.join(code_dir, "models"))
+    p.add_argument(
+        "--resume",
+        default=None,
+        help="Resume from a checkpoint file (typically last.pt); --epochs remains the total target epoch.",
+    )
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
 
@@ -245,9 +250,51 @@ def main() -> None:
 
     print(f"device={device} architecture={' -> '.join(map(str, dims))}")
     print(f"train={len(train_t)} test={len(test_t)} save={save_dir}")
+    start_epoch = 0
     best_accuracy = -1.0
+    if args.resume is not None:
+        resume_path = osp.abspath(args.resume)
+        if osp.isdir(resume_path):
+            resume_path = osp.join(resume_path, "last.pt")
+        checkpoint = torch.load(resume_path, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint["model"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        start_epoch = int(checkpoint["epoch"])
+        if start_epoch >= args.epochs:
+            raise ValueError(
+                f"checkpoint is already at epoch {start_epoch}, but target --epochs is {args.epochs}"
+            )
+
+        if "scheduler" in checkpoint:
+            scheduler.load_state_dict(checkpoint["scheduler"])
+        else:
+            # Legacy checkpoints saved the optimizer after scheduler.step(),
+            # but did not save the scheduler itself. Preserve the loaded LR
+            # and align the next decay with the global epoch (45 after epoch 33).
+            scheduler.last_epoch = start_epoch
+            scheduler._step_count = start_epoch + 1
+            scheduler._last_lr = [group["lr"] for group in optimizer.param_groups]
+
+        best_accuracy = float(checkpoint.get("best_accuracy", -1.0))
+        best_path = osp.join(save_dir, "best.pt")
+        if osp.exists(best_path):
+            best_checkpoint = torch.load(best_path, map_location="cpu", weights_only=False)
+            best_accuracy = max(best_accuracy, float(best_checkpoint["test_accuracy"]))
+        if "consecutive_failures" in checkpoint:
+            consecutive_failures = list(checkpoint["consecutive_failures"])
+        if "torch_rng_state" in checkpoint:
+            torch.set_rng_state(checkpoint["torch_rng_state"].cpu())
+        if device.type == "cuda" and "cuda_rng_state_all" in checkpoint:
+            torch.cuda.set_rng_state_all(checkpoint["cuda_rng_state_all"])
+        if "numpy_rng_state" in checkpoint:
+            np.random.set_state(checkpoint["numpy_rng_state"])
+        print(
+            f"resumed={resume_path} start_epoch={start_epoch} "
+            f"best_accuracy={best_accuracy:.4f} lr={optimizer.param_groups[0]['lr']:.8f}"
+        )
+
     started = time.time()
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         loss_total = ce_total = reg_total = 0.0
         sample_total = rejected_total = 0
@@ -291,13 +338,21 @@ def main() -> None:
             f"test_acc={accuracy:.4f} missing={','.join(f'{x:.3f}' for x in missing)} "
             f"bumps={bumps} rejected={rejected_total} elapsed={elapsed:.1f}s"
         )
+        is_best = accuracy > best_accuracy
+        if is_best:
+            best_accuracy = accuracy
         state = {
             "model": model.state_dict(), "optimizer": optimizer.state_dict(),
             "epoch": epoch + 1, "test_accuracy": accuracy, "config": asdict(config),
+            "scheduler": scheduler.state_dict(), "best_accuracy": best_accuracy,
+            "consecutive_failures": consecutive_failures,
+            "torch_rng_state": torch.get_rng_state(),
+            "numpy_rng_state": np.random.get_state(),
         }
+        if device.type == "cuda":
+            state["cuda_rng_state_all"] = torch.cuda.get_rng_state_all()
         torch.save(state, osp.join(save_dir, "last.pt"))
-        if accuracy > best_accuracy:
-            best_accuracy = accuracy
+        if is_best:
             torch.save(state, osp.join(save_dir, "best.pt"))
 
     for index, layer in enumerate(model.layers):
