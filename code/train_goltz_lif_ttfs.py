@@ -185,12 +185,9 @@ def evaluate(model: GoeltzLIFNetwork, loader: DataLoader, device: torch.device) 
         times, labels = times.to(device), labels.to(device)
         results = model(times)
         output = results[-1]
-        # Match the Fast&Deep decoder: classify solely by the earliest actual
-        # output spike. A sample with no output spike is rejected (-1), not
-        # assigned to class zero through argmin's tie-breaking.
-        masked_times = output.times.masked_fill(~output.spiked, float("inf"))
-        prediction = masked_times.argmin(dim=1)
-        prediction = prediction.masked_fill(~output.spiked.any(dim=1), -1)
+        # Match the IF decoder: silent outputs take the terminal time and
+        # standard argmin resolves equal times by the lowest class index.
+        prediction = output.times.argmin(dim=1)
         correct += int((prediction == labels).sum())
         total += labels.numel()
         for index, result in enumerate(results):

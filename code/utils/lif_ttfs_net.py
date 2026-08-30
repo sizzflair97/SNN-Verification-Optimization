@@ -149,7 +149,10 @@ def lif_first_spike_layer(
     masked = np.where(valid, candidates, np.inf)
     selected_index = np.argmin(masked, axis=2)
     first_time = np.take_along_axis(masked, selected_index[:, :, None], axis=2)[:, :, 0]
-    spiked = np.isfinite(first_time)
+    # Match the finite-horizon classifier: an analytical crossing at or
+    # beyond the deadline is a no-spike event represented by the terminal
+    # time, and it is not propagated to the next layer.
+    spiked = np.isfinite(first_time) & (first_time < no_spike_time)
     times = np.where(spiked, first_time, np.asarray(no_spike_time, dtype=dtype))
     causal_count = np.where(spiked, selected_index + 1, 0)
 
@@ -191,13 +194,11 @@ def lif_ttfs_forward_batch(
         raise ValueError("weights_list must contain at least one layer")
     if layer_results_return is not None:
         layer_results_return[:] = results
-    # Earliest *actual* output spike wins. If the complete output layer is
-    # silent, return the Fast&Deep reject label instead of letting argmin pick
-    # class zero from equal no-spike sentinels.
+    # Use the same finite-horizon decoder as the IF model. Silent outputs have
+    # the terminal time, and standard argmin resolves all ties by the lowest
+    # class index (hence an all-silent output predicts class zero).
     output = results[-1]
-    masked_times = np.where(output.spiked, output.times, np.inf)
-    prediction = np.argmin(masked_times, axis=1)
-    prediction = np.where(np.any(output.spiked, axis=1), prediction, -1)
+    prediction = np.argmin(output.times, axis=1)
     return prediction[0] if squeeze_batch else prediction
 
 

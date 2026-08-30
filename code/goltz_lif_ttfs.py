@@ -161,7 +161,10 @@ class GoeltzLIFLayer(nn.Module):
 
         masked = torch.where(valid, candidates, torch.full_like(candidates, float("inf")))
         first_time = masked.min(dim=2).values
-        spiked = torch.isfinite(first_time)
+        # The paper uses a finite inference horizon. Crossings at or beyond
+        # the deadline are treated as no spike and represented by the same
+        # terminal time as neurons that never cross.
+        spiked = torch.isfinite(first_time) & (first_time < self.no_spike_time)
         times = torch.where(
             spiked,
             first_time,
@@ -212,4 +215,3 @@ class GoeltzLIFNetwork(nn.Module):
             results.append(result)
             times, active = result.times, result.spiked
         return results
-

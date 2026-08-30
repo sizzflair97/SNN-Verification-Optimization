@@ -119,12 +119,31 @@ def test_numpy_network_tie_breaks_by_lowest_output_index() -> None:
     np.testing.assert_array_equal(predictions, np.array([0, 0]))
 
 
-def test_numpy_network_rejects_all_silent_outputs() -> None:
+def test_numpy_network_all_silent_outputs_choose_lowest_index() -> None:
     first = np.full((2, 3), -1.0, dtype=np.float64)
     second = np.ones((2, 2), dtype=np.float64)
     inputs = np.array([[0.1, 0.2, 0.3], [0.3, 0.2, 0.1]], dtype=np.float64)
     predictions = lif_ttfs_forward_batch([first, second], inputs)
-    np.testing.assert_array_equal(predictions, np.array([-1, -1]))
+    np.testing.assert_array_equal(predictions, np.array([0, 0]))
+
+
+def test_crossing_after_deadline_is_terminal_no_spike() -> None:
+    layer = GoeltzLIFLayer(
+        1, 1, weight_std=0.0, no_spike_time=0.3
+    ).double()
+    with torch.no_grad():
+        layer.weight.fill_(3.0)
+    input_time = torch.tensor([[0.2]], dtype=torch.float64)
+    torch_result = layer(input_time)
+    numpy_result = lif_first_spike_layer(
+        input_time.numpy(),
+        layer.weight.detach().numpy(),
+        no_spike_time=0.3,
+    )
+    assert not bool(torch_result.spiked.item())
+    assert float(torch_result.times.item()) == 0.3
+    assert not bool(numpy_result.spiked.item())
+    assert float(numpy_result.times.item()) == 0.3
 
 
 def test_silent_neuron_uses_no_spike_sentinel() -> None:
