@@ -551,15 +551,25 @@ def _output_voltage_bounds_cells(
     return np.nextafter(lower, -np.inf), np.nextafter(upper, np.inf)
 
 
-def _classification_is_separated(output: LIFSpikeBounds, prediction: int) -> tuple[bool, str]:
+def _classification_is_separated(
+    output: LIFSpikeBounds,
+    prediction: int,
+    no_spike_time: float,
+) -> tuple[bool, str]:
     if prediction < 0 or prediction >= output.earliest.size:
-        return False, "baseline has no valid output spike"
-    target_latest = output.latest[prediction]
+        return False, "baseline prediction is outside the output range"
+    # A neuron that may remain silent has decoder time T.  This converts the
+    # actual-spike intervals used for causal propagation into terminal-time
+    # intervals used by the classifier in lat.md.
+    target_latest = min(float(output.latest[prediction]), no_spike_time)
     if not np.isfinite(target_latest):
-        return False, "target output is not guaranteed to spike"
-    for competitor, competitor_earliest in enumerate(output.earliest):
+        target_latest = no_spike_time
+    for competitor, earliest in enumerate(output.earliest):
         if competitor == prediction:
             continue
+        competitor_earliest = min(float(earliest), no_spike_time)
+        if not np.isfinite(competitor_earliest):
+            competitor_earliest = no_spike_time
         safe = (
             competitor_earliest > target_latest
             if competitor < prediction
@@ -567,7 +577,7 @@ def _classification_is_separated(output: LIFSpikeBounds, prediction: int) -> tup
         )
         if not safe:
             return False, f"class {competitor} may tie or precede the target"
-    return True, "all competitor first-spike bounds are separated"
+    return True, "all competitor terminal-time bounds are separated"
 
 
 def lif_bcibp_bound_node(
@@ -582,6 +592,7 @@ def lif_bcibp_bound_node(
     coupled: bool = True,
     tau: float = 1.0,
     threshold: float = 1.0,
+    no_spike_time: float = 10.0,
     time_step: float = 0.05,
     min_time_step: float | None = None,
     prediction: int | None = None,
@@ -591,6 +602,8 @@ def lif_bcibp_bound_node(
     """Sound subtree certificate for an arbitrary-depth feed-forward LIF SNN."""
     if not weights_list:
         raise ValueError("weights_list must not be empty")
+    if no_spike_time < input_max:
+        raise ValueError("no_spike_time must not precede input_max")
     times = np.asarray(input_times, dtype=np.float64).reshape(-1)
     weights = [np.asarray(value, dtype=np.float64) for value in weights_list]
     previous_width = times.size
@@ -599,11 +612,20 @@ def lif_bcibp_bound_node(
             raise ValueError("incompatible LIF network shapes")
         previous_width = value.shape[0]
     if prediction is None:
-        prediction = lif_ttfs_forward(weights, times, tau_syn=tau, threshold=threshold)
+        prediction = lif_ttfs_forward(
+            weights,
+            times,
+            tau_syn=tau,
+            threshold=threshold,
+            no_spike_time=no_spike_time,
+        )
     if min_time_step is None:
         min_time_step = time_step
 
-    first_tail = _tail_cap(weights[0], input_max, threshold, tau)
+    first_tail = min(
+        _tail_cap(weights[0], input_max, threshold, tau),
+        no_spike_time,
+    )
 
     def first_bound(starts: Array, ends: Array) -> tuple[Array, Array]:
         return input_voltage_bounds_cells(
@@ -637,14 +659,19 @@ def lif_bcibp_bound_node(
     for layer_weights in weights[1:]:
         previous = layer_bounds[-1]
         finite = previous.earliest[np.isfinite(previous.earliest)]
-        if not finite.size:
+        if not finite.size or float(np.min(finite)) >= no_spike_time:
             silent = np.full(layer_weights.shape[0], np.inf, dtype=np.float64)
             layer_bounds.append(
-                LIFSpikeBounds(silent.copy(), silent.copy(), silent.copy(), previous.tail_cap)
+                LIFSpikeBounds(
+                    silent.copy(), silent.copy(), silent.copy(), no_spike_time
+                )
             )
             continue
         layer_start = float(np.min(finite))
-        layer_tail = _tail_cap(layer_weights, previous.tail_cap, threshold, tau)
+        layer_tail = min(
+            _tail_cap(layer_weights, previous.tail_cap, threshold, tau),
+            no_spike_time,
+        )
 
         def layer_bound(starts: Array, ends: Array, w=layer_weights, pre=previous):
             return _output_voltage_bounds_cells(w, pre, starts, ends, tau)
@@ -661,7 +688,9 @@ def lif_bcibp_bound_node(
             )
         )
 
-    robust, reason = _classification_is_separated(layer_bounds[-1], int(prediction))
+    robust, reason = _classification_is_separated(
+        layer_bounds[-1], int(prediction), no_spike_time
+    )
     return LIFBCIBPResult(
         robust=robust,
         prediction=int(prediction),
@@ -672,90 +701,7 @@ def lif_bcibp_bound_node(
         reason=reason,
         layers=tuple(layer_bounds),
     )
-def _legacy_lif_bcibp_prove_robust(
-    input_times: Array,
-    weights_list: Sequence[Array],
-    *,
-    budget: int,
-    shift_step: float,
-    input_min: float,
-    input_max: float,
-    tau: float = 1.0,
-    threshold: float = 1.0,
-    time_step: float = 0.05,
-    prediction: int | None = None,
-) -> LIFBCIBPResult:
-    """Run sound LIF BC-IBP for an input-hidden-output TTFS network."""
-    if len(weights_list) != 2:
-        raise NotImplementedError("the initial LIF BC-IBP supports one hidden layer")
-    input_times = np.asarray(input_times, dtype=np.float64).reshape(-1)
-    w_hidden = np.asarray(weights_list[0], dtype=np.float64)
-    w_output = np.asarray(weights_list[1], dtype=np.float64)
-    if w_hidden.shape[1] != input_times.size or w_output.shape[1] != w_hidden.shape[0]:
-        raise ValueError("incompatible LIF network shapes")
-    if prediction is None:
-        prediction = lif_ttfs_forward(
-            weights_list, input_times, tau_syn=tau, threshold=threshold
-        )
 
-    latest_input = float(input_max)
-    hidden_tail = _tail_cap(w_hidden, latest_input, threshold, tau)
-
-    def hidden_bound(left: float, right: float) -> tuple[Array, Array]:
-        return input_voltage_bounds_mckp(
-            w_hidden, input_times, cell_start=left, cell_end=right,
-            budget=budget, shift_step=shift_step, input_min=input_min,
-            input_max=input_max, tau=tau,
-        )
-
-    hidden = _extract_spike_bounds(
-        w_hidden.shape[0], input_min, hidden_tail, time_step, threshold, hidden_bound
-    )
-
-    finite_hidden = hidden.earliest[np.isfinite(hidden.earliest)]
-    if finite_hidden.size == 0:
-        output = LIFSpikeBounds(
-            np.full(w_output.shape[0], np.inf), np.full(w_output.shape[0], np.inf),
-            np.full(w_output.shape[0], np.inf), hidden_tail,
-        )
-        return LIFBCIBPResult(False, int(prediction), hidden, output, budget, shift_step,
-                              "no output spike can be guaranteed")
-
-    output_start = float(np.min(finite_hidden))
-    output_tail = _tail_cap(w_output, hidden_tail, threshold, tau)
-
-    def output_bound(left: float, right: float) -> tuple[Array, Array]:
-        return _output_voltage_bounds(w_output, hidden, left, right, tau)
-
-    output = _extract_spike_bounds(
-        w_output.shape[0], output_start, output_tail, time_step,
-        threshold, output_bound,
-    )
-
-    if prediction < 0 or prediction >= w_output.shape[0]:
-        return LIFBCIBPResult(False, int(prediction), hidden, output, budget, shift_step,
-                              "baseline has no valid output spike")
-    target_latest = output.latest[prediction]
-    if not np.isfinite(target_latest):
-        return LIFBCIBPResult(False, int(prediction), hidden, output, budget, shift_step,
-                              "target output is not guaranteed to spike")
-
-    for competitor in range(w_output.shape[0]):
-        if competitor == prediction:
-            continue
-        competitor_earliest = output.earliest[competitor]
-        # NumPy argmin gives a tie to the lower output index.
-        if competitor < prediction:
-            safe = competitor_earliest > target_latest
-        else:
-            safe = competitor_earliest >= target_latest
-        if not safe:
-            return LIFBCIBPResult(
-                False, int(prediction), hidden, output, budget, shift_step,
-                f"class {competitor} may tie or precede the target",
-            )
-    return LIFBCIBPResult(True, int(prediction), hidden, output, budget, shift_step,
-                          "all competitor first-spike bounds are separated")
 
 def lif_bcibp_prove_robust(
     input_times: Array,
@@ -767,6 +713,7 @@ def lif_bcibp_prove_robust(
     input_max: float,
     tau: float = 1.0,
     threshold: float = 1.0,
+    no_spike_time: float = 10.0,
     time_step: float = 0.05,
     prediction: int | None = None,
 ) -> LIFBCIBPResult:
@@ -782,6 +729,7 @@ def lif_bcibp_prove_robust(
         coupled=True,
         tau=tau,
         threshold=threshold,
+        no_spike_time=no_spike_time,
         time_step=time_step,
         min_time_step=time_step,
         prediction=prediction,

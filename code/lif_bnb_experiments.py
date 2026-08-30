@@ -33,7 +33,7 @@ DEFAULT_CHECKPOINT = Path(
     "lif_goltz_ct_784_350_10_seed0/best.pt"
 )
 REFERENCE_CHECKPOINT_SHA256 = (
-    "a7c7c660857bec105abad959fa546de840f63634687ed19fc838546c7c257eac"
+    "999803bf6315bc7379844cb01c833b2ff526ff2a83b25688fea3c31eda0ceba6"
 )
 DEFAULT_MNIST_ROOT = Path(
     "/data/SNN-Verification-Optimization/code/data/mnist/MNIST/raw"
@@ -151,9 +151,8 @@ def select_correct_samples(
         indices = permutation[start:start + 128]
         times = encode_times(images[indices], float(config["early"]), float(config["late"]))
         output = model(torch.as_tensor(times, dtype=torch.float32, device=device))[-1]
-        masked = output.times.masked_fill(~output.spiked, float("inf"))
-        prediction = masked.argmin(dim=1).masked_fill(~output.spiked.any(dim=1), -1)
-        sorted_times = masked.sort(dim=1).values
+        prediction = output.times.argmin(dim=1)
+        sorted_times = output.times.sort(dim=1).values
         unique = (sorted_times[:, 1] - sorted_times[:, 0]) > 1e-7
         for index, pred, is_unique in zip(indices, prediction.cpu(), unique.cpu()):
             if bool(is_unique) and int(pred) == int(labels[index]):
@@ -264,8 +263,7 @@ def replay_torch_witness(
     output = model(
         torch.as_tensor([perturbed_times], dtype=torch.float32, device=device)
     )[-1]
-    masked = output.times.masked_fill(~output.spiked, float("inf"))
-    prediction = masked.argmin(dim=1).masked_fill(~output.spiked.any(dim=1), -1)
+    prediction = output.times.argmin(dim=1)
     actual = int(prediction.item())
     return actual == expected, actual
 
@@ -654,4 +652,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

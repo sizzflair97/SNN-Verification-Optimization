@@ -65,9 +65,7 @@ def load_test_times(root: str, early: float, late: float) -> tuple[np.ndarray, n
 def forward_model(model: GoeltzLIFNetwork, batch: np.ndarray, device: torch.device):
     results = model(torch.as_tensor(batch, dtype=torch.float32, device=device))
     output = results[-1]
-    masked = output.times.masked_fill(~output.spiked, float("inf"))
-    prediction = masked.argmin(dim=1)
-    prediction = prediction.masked_fill(~output.spiked.any(dim=1), -1)
+    prediction = output.times.argmin(dim=1)
     return results, prediction
 
 
@@ -138,6 +136,7 @@ def main() -> None:
         input_max=late,
         tau=tau,
         threshold=threshold,
+        no_spike_time=max(10.0 * tau, late + 6.0 * tau),
         time_step=args.time_step,
         prediction=baseline_prediction,
     )

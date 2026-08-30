@@ -210,12 +210,18 @@ The LIF verifier is separate from the cumulative-IF pipeline:
 
 The reference checkpoint is
 `/data/SNN-Verification-Optimization/models/lif_goltz_ct_784_350_10_seed0/best.pt`.
-The default runner requires the epoch-26 SHA-256
-`a7c7c660857bec105abad959fa546de840f63634687ed19fc838546c7c257eac`
+The default runner requires the epoch-146 (97.51%) SHA-256
+`999803bf6315bc7379844cb01c833b2ff526ff2a83b25688fea3c31eda0ceba6`
 and snapshots it to `bench_results/lif/checkpoints/<sha256>.pt` before workers
 start. This prevents a concurrently running trainer from mixing checkpoints.
 For its `[0.15, 2.0]` input interval and the paper's `T=5` protocol, one
 integer shift is `eta=(2.0-0.15)/(5-1)=0.4625`.
+
+Exact forward and BC-IBP use the finite-horizon decoder specified in
+[`lat.md`](../lat.md): an output that does not spike before the deadline has
+terminal time `T`; `argmin` resolves ties by output index, so an all-silent
+output is classified as class 0. Terminal sentinels are never propagated as
+hidden-layer spikes.
 
 ```bash
 PYTHONPATH=code /opt/conda/envs/snn-verification/bin/python code/test_lif_bnb.py

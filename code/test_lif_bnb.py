@@ -46,6 +46,27 @@ class FullLIFBnBTests(unittest.TestCase):
         self.assertEqual(by_time[0.8], (2, 2, 0.8))
         self.assertEqual(by_time[1.0], (3, 3, 1.0))
 
+    def test_all_silent_terminal_decoder_is_robust_class_zero(self) -> None:
+        model = LIFModelSpec(
+            (
+                np.zeros((2, 3), dtype=np.float64),
+                np.zeros((3, 2), dtype=np.float64),
+            ),
+            input_min=0.0,
+            input_max=1.5,
+        )
+        threat = LIFThreatSpec(1, 0.4, 0.0, 1.5)
+        for method in ("exhaustive", "bnb_coupled"):
+            with self.subTest(method=method):
+                result = verify_lif_ttfs(
+                    model,
+                    self.times,
+                    threat,
+                    LIFVerifyConfig(method=method, bound_every=1, timeout_s=30.0),
+                )
+                self.assertEqual(result.baseline_prediction, 0)
+                self.assertEqual(result.verdict, "robust")
+
     def test_batched_cell_mckp_contains_complete_enumeration(self) -> None:
         starts = np.asarray([0.0, 0.5, 1.0, 1.5])
         ends = starts + 0.35
@@ -132,4 +153,3 @@ class FullLIFBnBTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

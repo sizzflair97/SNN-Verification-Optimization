@@ -27,6 +27,32 @@ def enumerate_shifts(n_inputs: int, budget: int):
 
 
 class LIFBCIBPTests(unittest.TestCase):
+    def test_all_silent_terminal_tie_certifies_only_class_zero(self) -> None:
+        input_times = np.asarray([0.2, 0.7], dtype=np.float64)
+        weights = [
+            np.zeros((2, 2), dtype=np.float64),
+            np.zeros((3, 2), dtype=np.float64),
+        ]
+        common = dict(
+            budget=1,
+            shift_step=0.2,
+            input_min=0.0,
+            input_max=1.0,
+            no_spike_time=2.0,
+            time_step=0.05,
+        )
+
+        class_zero = lif_bcibp_prove_robust(
+            input_times, weights, prediction=0, **common
+        )
+        class_one = lif_bcibp_prove_robust(
+            input_times, weights, prediction=1, **common
+        )
+
+        self.assertTrue(class_zero.robust)
+        self.assertFalse(class_one.robust)
+        self.assertTrue(np.all(np.isinf(class_zero.output.earliest)))
+
     def test_alpha_interval_contains_dense_curve(self) -> None:
         cases = [(-2.0, -0.1), (-0.2, 0.4), (0.2, 0.8), (0.3, 1.4), (1.3, 3.0)]
         for lo, hi in cases:
@@ -108,4 +134,3 @@ class LIFBCIBPTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

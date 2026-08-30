@@ -59,6 +59,11 @@ class LIFModelSpec:
     def dims(self) -> tuple[int, ...]:
         return (self.weights[0].shape[1], *(value.shape[0] for value in self.weights))
 
+    @property
+    def no_spike_time(self) -> float:
+        """Finite decoder deadline shared with the trained Torch model."""
+        return max(10.0 * self.tau, self.input_max + 6.0 * self.tau)
+
 
 @dataclass(frozen=True)
 class LIFThreatSpec:
@@ -173,12 +178,13 @@ def _prediction_and_margin(
             np.asarray(input_times, dtype=np.float64),
             tau_syn=model.tau,
             threshold=model.threshold,
+            no_spike_time=model.no_spike_time,
             layer_results_return=layers,
         )
     )
     output = layers[-1]
-    finite = np.sort(output.times[output.spiked])
-    margin = float(finite[1] - finite[0]) if finite.size >= 2 else float("inf")
+    ordered = np.sort(np.asarray(output.times).reshape(-1))
+    margin = float(ordered[1] - ordered[0]) if ordered.size >= 2 else float("inf")
     return prediction, margin
 
 
@@ -227,7 +233,7 @@ def _verify_batched_enumeration(
             list(model.dims),
             tau_syn=model.tau,
             threshold=model.threshold,
-            no_spike_time=max(10.0 * model.tau, model.input_max + 6.0 * model.tau),
+            no_spike_time=model.no_spike_time,
         ).to(device=torch_device, dtype=torch.float64).eval()
         with torch.no_grad():
             for layer, weight in zip(torch_exact.layers, model.weights):
@@ -262,6 +268,7 @@ def _verify_batched_enumeration(
                     np.asarray(batch_times, dtype=np.float64),
                     tau_syn=model.tau,
                     threshold=model.threshold,
+                    no_spike_time=model.no_spike_time,
                 )
             )
         else:
@@ -273,10 +280,7 @@ def _verify_batched_enumeration(
                         device=torch_device,
                     )
                 )[-1]
-                masked = output.times.masked_fill(~output.spiked, float("inf"))
-                predicted = masked.argmin(dim=1)
-                predicted = predicted.masked_fill(~output.spiked.any(dim=1), -1)
-                predictions = predicted.cpu().numpy()
+                predictions = output.times.argmin(dim=1).cpu().numpy()
         stats.exact_forwards += len(batch_times)
         stats.nodes += len(batch_times)
         stats.maximum_depth = max(stats.maximum_depth, max(batch_depths))
@@ -286,9 +290,6 @@ def _verify_batched_enumeration(
             replay_prediction, margin = _prediction_and_margin(model, batch_times[row])
             stats.exact_forwards += 1
             if replay_prediction == baseline_prediction:
-                numerical_seen = True
-                continue
-            if margin <= config.numerical_tolerance:
                 numerical_seen = True
                 continue
             shift_vector = batch_shifts[row].astype(int)
@@ -373,24 +374,12 @@ def verify_lif_ttfs(
     sys.setrecursionlimit(max(sys.getrecursionlimit(), baseline.size + 1000))
 
     try:
-        predicted, baseline_margin = _prediction_and_margin(model, baseline)
+        predicted, _ = _prediction_and_margin(model, baseline)
         stats.exact_forwards += 1
         if baseline_prediction is None:
             baseline_prediction = predicted
         elif int(baseline_prediction) != predicted:
             raise ValueError("provided baseline prediction does not match exact forward")
-        if baseline_margin <= config.numerical_tolerance:
-            return LIFVerificationResult(
-                "numerical_unknown",
-                int(baseline_prediction),
-                config.method,
-                threat.budget,
-                threat.shift_step,
-                time.perf_counter() - started,
-                stats,
-                reason="baseline output times are numerically tied",
-            )
-
         all_options = [
             canonical_shift_options(
                 value,
@@ -447,6 +436,7 @@ def verify_lif_ttfs(
                 coupled=config.method != "bnb_uncoupled",
                 tau=model.tau,
                 threshold=model.threshold,
+                no_spike_time=model.no_spike_time,
                 time_step=config.time_step,
                 min_time_step=config.min_time_step,
                 prediction=int(baseline_prediction),
@@ -497,10 +487,7 @@ def verify_lif_ttfs(
                 list(model.dims),
                 tau_syn=model.tau,
                 threshold=model.threshold,
-                no_spike_time=max(
-                    10.0 * model.tau,
-                    model.input_max + 6.0 * model.tau,
-                ),
+                no_spike_time=model.no_spike_time,
             ).to(device=torch_dfs_device, dtype=torch.float64).eval()
             with torch.no_grad():
                 for layer, weight in zip(torch_dfs.layers, model.weights):
@@ -540,16 +527,12 @@ def verify_lif_ttfs(
                             device=torch_dfs_device,
                         )
                     )[-1]
-                    masked = output.times.masked_fill(~output.spiked, float("inf"))
-                    predicted = masked.argmin(dim=1)
-                    predicted = predicted.masked_fill(
-                        ~output.spiked.any(dim=1), -1
-                    )
+                    predicted = output.times.argmin(dim=1)
                     prediction = int(predicted.item())
-                    finite = torch.sort(masked[0, output.spiked[0]]).values
+                    ordered = torch.sort(output.times[0]).values
                     margin = (
-                        float((finite[1] - finite[0]).item())
-                        if finite.numel() >= 2
+                        float((ordered[1] - ordered[0]).item())
+                        if ordered.numel() >= 2
                         else float("inf")
                     )
             stats.exact_forwards += 1
@@ -564,9 +547,6 @@ def verify_lif_ttfs(
                     numerical_seen = True
                     return False
                 margin = min(margin, replay_margin)
-            if margin <= config.numerical_tolerance:
-                numerical_seen = True
-                return False
             cost = int(np.abs(shifts.astype(np.int64)).sum())
             witness = {
                 "shift_vector": shifts.astype(int).tolist(),
@@ -630,6 +610,7 @@ def verify_lif_ttfs(
                         coupled=config.method != "bnb_uncoupled",
                         tau=model.tau,
                         threshold=model.threshold,
+                        no_spike_time=model.no_spike_time,
                         time_step=config.time_step,
                         min_time_step=config.min_time_step,
                         prediction=int(baseline_prediction),
@@ -718,4 +699,3 @@ def verify_lif_ttfs(
             reason="verification raised an exception",
             error=f"{type(error).__name__}: {error}",
         )
-
